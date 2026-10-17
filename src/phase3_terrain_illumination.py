@@ -119,9 +119,9 @@ class TerrainIlluminationEngine:
         illumination_fraction = np.mean(unobstructed.astype(float), axis=0)
 
         # Crater floor masking: deep depressions surrounded by high rims receive zero direct light
-        crater_mask = dem < -400.0
+        crater_mask = dem < -200.0
         illumination_fraction[crater_mask] = np.clip(illumination_fraction[crater_mask] * 0.1, 0.0, 1.0)
-        illumination_fraction[dem < -800.0] = 0.0  # Deep floor is totally dark
+        illumination_fraction[dem < -350.0] = 0.0  # Deep floor is totally dark
 
         # Permanently Shadowed Region (PSR): Illumination fraction is strictly 0.0
         psr_mask = illumination_fraction < 0.005
@@ -135,7 +135,7 @@ class TerrainIlluminationEngine:
         # 1. Zero direct sunlight (PSR)
         # 2. Restricted sky-view factor (< 0.86, typical for crater floor)
         # 3. Minimum secondary scattered infrared/visible flux from illuminated rim walls
-        doubly_shadowed = psr_mask & (sky_view_factor < 0.86) & (dem < -1200.0)
+        doubly_shadowed = psr_mask & (sky_view_factor < 0.86) & (dem < -350.0)
 
         return {
             "illumination_fraction": illumination_fraction.astype(np.float32),
@@ -171,7 +171,7 @@ class TerrainIlluminationEngine:
         earth_elevation_mean = 3.5  # Mean Earth elevation
         earth_los = np.clip((earth_elevation_mean - north_horizon_deg) / 3.5, 0.0, 1.0)
         # Crater bowl floor has zero line of sight to Earth due to tall northern crater walls
-        earth_los[dem < -400.0] = 0.0
+        earth_los[dem < -200.0] = 0.0
 
         return earth_los.astype(np.float32)
 

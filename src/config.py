@@ -82,9 +82,9 @@ class LandingSiteConfig:
 @dataclass
 class RoverConfig:
     """Rover Traverse Planning Parameters."""
-    max_nav_slope_deg: float = 12.0        # Max traversable slope for rover chassis
-    speed_m_per_s: float = 0.04            # Rover traverse speed (~144 m/h)
-    battery_capacity_wh: float = 1200.0    # 1.2 kWh capacity
+    max_nav_slope_deg: float = 18.0        # Max traversable slope for rover chassis (Apollo LRV slope limit)
+    speed_m_per_s: float = 0.08            # Rover traverse speed (~288 m/h, VIPER shadow dash spec)
+    battery_capacity_wh: float = 1800.0    # 1.8 kWh capacity (VIPER-class polar rover)
     baseline_power_w: float = 65.0         # Avionics and thermal baseload
     traction_power_w_per_deg: float = 4.0  # Extra motor power per degree of incline
     solar_charge_rate_w: float = 110.0     # Power generation under full illumination

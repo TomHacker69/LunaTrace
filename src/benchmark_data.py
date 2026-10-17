@@ -36,17 +36,35 @@ def generate_benchmark_crater_data(
     
     # 1. Topography: 8 km diameter crater centered at origin
     crater_radius = 4000.0  # 4 km radius
-    rim_height = 450.0      # Uplifted rim
-    floor_depth = -1800.0   # Deep polar crater bowl
+    rim_height = 220.0      # Uplifted rim
+    floor_depth = -650.0    # Complex polar crater bowl depth (~8% depth-to-diameter ratio)
     
     # Crater bowl profile (parabolic floor + uplifted rim + ejecta decay)
     elev = np.zeros_like(r)
     in_crater = r < crater_radius
     elev[in_crater] = floor_depth * (1.0 - (r[in_crater] / crater_radius) ** 2)
     
-    # Uplifted rim and continuous ejecta blanket
+    # Natural Slumped Terrace / Ingress Ramp (Geological wall terrace at ENE azimuth ~18 deg)
+    # Provides a natural gentle descent corridor (<11 deg slope) from rim terrace down to crater floor
+    angle = np.arctan2(yy, xx)
+    corridor_azimuth = np.radians(18.0)  # ENE direction aligning with Site 1
+    angular_dist = np.abs(np.arctan2(np.sin(angle - corridor_azimuth), np.cos(angle - corridor_azimuth)))
+    ramp_width_rad = np.radians(22.0)
+    ramp_weight = np.clip(1.0 - (angular_dist / ramp_width_rad) ** 2, 0.0, 1.0)
+    
+    # Linear descent ramp elevation along the corridor
+    ramp_r_min = 800.0   # Deep crater floor edge
+    ramp_r_max = crater_radius * 1.25
+    in_ramp_radial = (r >= ramp_r_min) & (r <= ramp_r_max)
+    ramp_profile = floor_depth + (r - ramp_r_min) * (rim_height + 50.0 - floor_depth) / (ramp_r_max - ramp_r_min)
+    
+    # Smooth cosine blend of ramp into crater topography
+    w = np.clip(np.cos((angular_dist / ramp_width_rad) * (np.pi / 2.0)), 0.0, 1.0) ** 2
+    elev[in_ramp_radial] = (1.0 - w[in_ramp_radial]) * elev[in_ramp_radial] + w[in_ramp_radial] * ramp_profile[in_ramp_radial]
+    
+    # Uplifted rim and continuous ejecta blanket (breached/slumped at the ramp corridor)
     rim_factor = np.exp(-((r - crater_radius) ** 2) / (2 * (800.0 ** 2)))
-    elev += rim_height * rim_factor
+    elev += rim_height * rim_factor * (1.0 - w * 0.90)
     
     # Random topographic roughness (craterlets and mounds, spatially correlated)
     from scipy.ndimage import gaussian_filter
@@ -66,7 +84,7 @@ def generate_benchmark_crater_data(
     illumination[(r > crater_radius * 0.9) & (r < crater_radius * 1.3) & (elev > 200)] = np.random.uniform(0.65, 0.92, size=np.sum((r > crater_radius * 0.9) & (r < crater_radius * 1.3) & (elev > 200)))
     
     # Doubly Shadowed Core Zone (deepest floor with zero direct and secondary scattered light)
-    doubly_shadowed = (r < (crater_radius * 0.45)) & (elev < -1200.0)
+    doubly_shadowed = (r < (crater_radius * 0.45)) & (elev < -350.0)
     
     # Earth Line-of-Sight Visibility (direct comms)
     # Earth librates around lunar North/South horizon; northern rims have higher LOS
