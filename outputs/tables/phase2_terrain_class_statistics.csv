@@ -1,4 +1,4 @@
 Terrain_Class,Area_km2,Fraction_pct,Mean_CPR_L,Mean_CPR_S,Mean_Delta_CPR,Mean_DOP_L
-Subsurface Ice Deposit,9.39,9.39,1.739,0.91,0.829,0.269
-Rocky Ejecta / Rim,10.15,10.15,1.302,1.253,0.049,0.156
-Background Regolith,80.46,80.46,0.537,0.494,0.043,0.375
+Subsurface Ice Deposit,9.41,9.41,1.74,0.911,0.829,0.27
+Rocky Ejecta / Rim,9.97,9.97,1.284,1.236,0.048,0.15
+Background Regolith,80.63,80.63,0.474,0.433,0.041,0.399
