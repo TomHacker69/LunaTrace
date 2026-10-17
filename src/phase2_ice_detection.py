@@ -1,0 +1,324 @@
+"""
+Phase 2: Subsurface Ice Detection Framework
+Multi-discriminator scoring, CPR ambiguity resolution (ice vs. rocky ejecta),
+dual-frequency depth profiling (Delta CPR), and sensitivity analysis.
+"""
+
+from pathlib import Path
+from typing import Dict, Tuple, Any
+import numpy as np
+import pandas as pd
+import rasterio
+
+from src.config import CFG, RAW_DATA_DIR, PROCESSED_DATA_DIR, TABLES_DIR, MAPS_DIR
+from src.utils import save_geotiff, plot_cartographic_map
+
+
+class IceDetectionEngine:
+    """
+    Quantitative Lunar Ice Detection and Characterization Engine.
+    Combines radar polarimetry (L and S band), topographic slopes, illumination priors,
+    and control region discriminators to compute a continuous Ice Probability Map (0 to 1).
+    """
+
+    def __init__(self, config=CFG):
+        self.cfg = config
+        self.radar_cfg = config.radar
+        self.terrain_cfg = config.terrain
+
+    def load_inputs(self) -> Tuple[Dict[str, np.ndarray], rasterio.Affine, str]:
+        """Loads all required Phase 1 products and environmental rasters."""
+        inputs = {}
+        meta_transform = None
+        meta_crs = None
+
+        paths = {
+            "cpr_l": PROCESSED_DATA_DIR / "dfsar_L_CPR.tif",
+            "dop_l": PROCESSED_DATA_DIR / "dfsar_L_DOP.tif",
+            "pv_l": PROCESSED_DATA_DIR / "dfsar_L_P_volume.tif",
+            "s1_l": PROCESSED_DATA_DIR / "dfsar_L_S1.tif",
+            "cpr_s": PROCESSED_DATA_DIR / "dfsar_S_CPR.tif",
+            "dop_s": PROCESSED_DATA_DIR / "dfsar_S_DOP.tif",
+            "dem": RAW_DATA_DIR / "lola_dem_20m.tif",
+            "illumination": RAW_DATA_DIR / "crater_illumination.tif",
+            "boulders": RAW_DATA_DIR / "crater_boulder_density.tif"
+        }
+
+        for key, p in paths.items():
+            if not p.exists():
+                raise FileNotFoundError(f"Missing required raster: {p}")
+            with rasterio.open(p) as src:
+                inputs[key] = src.read(1).astype(np.float64)
+                if meta_transform is None:
+                    meta_transform = src.transform
+                    meta_crs = src.crs.to_string() if src.crs else self.terrain_cfg.projection_proj4
+
+        # Compute slope in degrees from DEM
+        dem = inputs["dem"]
+        res = self.terrain_cfg.grid_resolution_m
+        dy, dx = np.gradient(dem, res, res)
+        slope_rad = np.arctan(np.sqrt(dx ** 2 + dy ** 2))
+        inputs["slope_deg"] = np.degrees(slope_rad)
+
+        return inputs, meta_transform, meta_crs
+
+    def define_geological_regions(
+        self,
+        inputs: Dict[str, np.ndarray]
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Delineates key geomorphologic zones:
+        1. Crater interior permanently shadowed cold-trap (PSR)
+        2. Exterior rough rocky ejecta blanket (control region)
+        3. Background normal highland regolith
+        """
+        dem = inputs["dem"]
+        illum = inputs["illumination"]
+        boulders = inputs["boulders"]
+        slope = inputs["slope_deg"]
+
+        # Interior cold trap: zero illumination and low elevation bowl
+        psr_mask = (illum < 0.05) & (dem < -500.0)
+
+        # Exterior control region: Sunlit ejecta blanket outside rim with boulders
+        control_rocky_ejecta = (illum > 0.4) & (boulders > 0.20) & (dem > 0.0)
+
+        # Background highland regolith: smooth, illuminated, low boulder count
+        background_regolith = (illum > 0.3) & (boulders < 0.15) & (slope < 8.0)
+
+        return psr_mask, control_rocky_ejecta, background_regolith
+
+    def compute_ice_probability(
+        self,
+        inputs: Dict[str, np.ndarray],
+        cpr_threshold: float = 1.0,
+        dop_threshold: float = 0.13
+    ) -> Dict[str, np.ndarray]:
+        """
+        Calculates continuous ice probability (0 to 1) using a multi-factor scoring model:
+        1. Polarimetric Score (CPR_L and DOP_L sigmoid response)
+        2. Dual-Frequency Depth Score (CPR_L - CPR_S)
+        3. Thermal Cold Trap Stability Prior (PSR and elevation)
+        4. Roughness & Slope Hazard Penalty
+        """
+        cpr_l = inputs["cpr_l"]
+        dop_l = inputs["dop_l"]
+        cpr_s = inputs["cpr_s"]
+        slope = inputs["slope_deg"]
+        boulders = inputs["boulders"]
+        illum = inputs["illumination"]
+        dem = inputs["dem"]
+
+        # 1. Dual-frequency depth discriminator: Delta CPR (L - S)
+        # Deep ice shows CPR_L >> CPR_S; surface rocks show CPR_L ~ CPR_S
+        delta_cpr = np.clip(cpr_l - cpr_s, -1.0, 3.0)
+
+        # 2. Polarimetric Ice Candidate Score (S_pol)
+        # Sigmoidal scaling centered around CPR threshold and DOP threshold
+        cpr_score = 1.0 / (1.0 + np.exp(-4.0 * (cpr_l - cpr_threshold)))
+        dop_score = 1.0 / (1.0 + np.exp(20.0 * (dop_l - dop_threshold)))
+        s_pol = cpr_score * dop_score
+
+        # 3. Dual-Frequency Differential Score (S_freq)
+        # Strong positive Delta CPR indicates buried dielectric ice layer
+        s_freq = np.clip((delta_cpr - 0.15) / 0.50, 0.0, 1.0)
+
+        # 4. Thermal & Cold-Trap Prior (S_trap)
+        # Subsurface ice is thermally unstable if exposed to direct solar heat
+        s_trap = np.clip((0.15 - illum) / 0.15, 0.0, 1.0)
+        # Deep floor bonus
+        deep_floor = np.clip((-dem - 800.0) / 1000.0, 0.0, 1.0)
+        s_trap = np.clip(0.7 * s_trap + 0.3 * deep_floor, 0.0, 1.0)
+
+        # 5. Roughness & Slope Penalty (P_rough)
+        # Steep walls (>15 deg) cause radar layover/foreshortening and mass wasting
+        p_slope = np.clip((slope - 10.0) / 15.0, 0.0, 1.0)
+        p_boulder = np.clip((boulders - 0.20) / 0.30, 0.0, 1.0)
+        p_rough = np.clip(0.6 * p_slope + 0.4 * p_boulder, 0.0, 1.0)
+
+        # 6. Combined Continuous Ice Probability (0 to 1)
+        # Weighted combination scaled by (1 - penalty)
+        raw_prob = (0.45 * s_pol + 0.35 * s_freq + 0.20 * s_trap) * (1.0 - 0.85 * p_rough)
+        ice_probability = np.clip(raw_prob, 0.0, 1.0)
+
+        # Candidate Binary Classification Mask (High Confidence Ice)
+        high_prob_ice = (ice_probability >= 0.65) & (s_trap > 0.5)
+
+        # Ejecta / Rocky False Positive Mask
+        rocky_terrain = (cpr_l > cpr_threshold) & (delta_cpr < 0.20) & (boulders > 0.25)
+
+        return {
+            "ice_probability": ice_probability.astype(np.float32),
+            "delta_cpr": delta_cpr.astype(np.float32),
+            "high_prob_ice_mask": high_prob_ice.astype(np.uint8),
+            "rocky_terrain_mask": rocky_terrain.astype(np.uint8),
+            "s_pol": s_pol.astype(np.float32),
+            "s_freq": s_freq.astype(np.float32),
+            "s_trap": s_trap.astype(np.float32)
+        }
+
+    def run_sensitivity_analysis(
+        self,
+        inputs: Dict[str, np.ndarray],
+        control_mask: np.ndarray,
+        cpr_thresholds: list = [0.8, 1.0, 1.2],
+        dop_thresholds: list = [0.10, 0.13, 0.16]
+    ) -> pd.DataFrame:
+        """
+        Sensitivity analysis of detection performance across threshold perturbations.
+        Monitors detected ice area (km2) and false-positive rate in the control ejecta region.
+        """
+        pixel_area_km2 = (self.terrain_cfg.grid_resolution_m / 1000.0) ** 2
+        results = []
+
+        for cpr_th in cpr_thresholds:
+            for dop_th in dop_thresholds:
+                prods = self.compute_ice_probability(inputs, cpr_threshold=cpr_th, dop_threshold=dop_th)
+                ice_mask = prods["high_prob_ice_mask"] > 0
+                
+                # Ice detected inside candidate zone
+                ice_pixels = np.sum(ice_mask)
+                ice_area_km2 = ice_pixels * pixel_area_km2
+
+                # False positives in control rocky ejecta region
+                false_positives = np.sum(ice_mask & control_mask)
+                control_total = np.maximum(np.sum(control_mask), 1)
+                fpr = 100.0 * false_positives / control_total
+
+                results.append({
+                    "CPR_Threshold": cpr_th,
+                    "DOP_Threshold": dop_th,
+                    "Detected_Ice_Pixels": int(ice_pixels),
+                    "Detected_Ice_Area_km2": round(float(ice_area_km2), 3),
+                    "Control_False_Positives": int(false_positives),
+                    "Control_False_Positive_Rate_pct": round(float(fpr), 2)
+                })
+
+        return pd.DataFrame(results)
+
+    def process_and_export(self) -> Dict[str, Any]:
+        """Runs Phase 2 end-to-end, exports GeoTIFFs, maps, and CSV tables."""
+        inputs, transform, crs = self.load_inputs()
+        psr_mask, control_mask, bg_mask = self.define_geological_regions(inputs)
+
+        # Baseline detection
+        prods = self.compute_ice_probability(
+            inputs,
+            cpr_threshold=self.radar_cfg.cpr_ice_threshold,
+            dop_threshold=self.radar_cfg.dop_ice_max
+        )
+
+        # Save rasters
+        ice_prob_path = PROCESSED_DATA_DIR / "ice_probability_map.tif"
+        delta_cpr_path = PROCESSED_DATA_DIR / "delta_cpr_L_minus_S.tif"
+        ice_mask_path = PROCESSED_DATA_DIR / "ice_candidate_mask.tif"
+
+        save_geotiff(prods["ice_probability"], ice_prob_path, transform, crs=crs)
+        save_geotiff(prods["delta_cpr"], delta_cpr_path, transform, crs=crs)
+        save_geotiff(prods["high_prob_ice_mask"], ice_mask_path, transform, crs=crs)
+
+        # Cartographic Map 1: Ice Probability Map
+        map_ice_prob = plot_cartographic_map(
+            data=prods["ice_probability"],
+            title="Lunar South Pole Subsurface Ice Probability Map (0 to 1)",
+            output_filename="map_phase2_ice_probability.png",
+            cmap="turbo",
+            vmin=0.0,
+            vmax=1.0,
+            cbar_label="Ice Probability (Multi-Discriminator Score)",
+            overlay_contour=inputs["dem"],
+            contour_levels=[-1500, -1000, -500, 0, 500]
+        )
+
+        # Cartographic Map 2: Delta CPR (L-band minus S-band)
+        map_delta_cpr = plot_cartographic_map(
+            data=prods["delta_cpr"],
+            title="DFSAR Dual-Frequency Differential CPR (L-band - S-band)",
+            output_filename="map_phase2_delta_cpr.png",
+            cmap="RdYlBu_r",
+            vmin=-0.5,
+            vmax=1.2,
+            cbar_label="Delta CPR (L - S) [Buried Ice Indicator]",
+            overlay_contour=inputs["dem"],
+            contour_levels=[-1500, -1000, -500, 0, 500]
+        )
+
+        # Cartographic Map 3: Geological Classification Overlay
+        # 0: Background, 1: Rocky Ejecta / Rim, 2: High Probability Ice
+        classified = np.zeros_like(prods["ice_probability"], dtype=np.uint8)
+        classified[prods["rocky_terrain_mask"] > 0] = 1
+        classified[prods["high_prob_ice_mask"] > 0] = 2
+
+        import matplotlib.pyplot as plt
+        from matplotlib.colors import ListedColormap
+        fig, ax = plt.subplots(figsize=(9, 8), dpi=300)
+        custom_cmap = ListedColormap(["#2b2b2b", "#d95f02", "#00d2ff"])  # Gray, Orange, Cyan
+        cax = ax.imshow(classified, extent=[-10, 10, -10, 10], origin="upper", cmap=custom_cmap)
+        ax.set_title("Geological Discrimination: Ice vs. Rocky Ejecta vs. Regolith", fontsize=12, fontweight="bold")
+        ax.set_xlabel("East-West Distance (km)")
+        ax.set_ylabel("North-South Distance (km)")
+        ax.grid(color="gray", linestyle="--", alpha=0.3)
+
+        # Legend
+        from matplotlib.patches import Patch
+        legend_elements = [
+            Patch(facecolor="#2b2b2b", label="Background Regolith"),
+            Patch(facecolor="#d95f02", label="Rocky Ejecta / Rim (False Positive CPR)"),
+            Patch(facecolor="#00d2ff", label="Subsurface Ice Deposit (High Probability)")
+        ]
+        ax.legend(handles=legend_elements, loc="upper left", framealpha=0.9)
+        class_map_path = MAPS_DIR / "map_phase2_geological_classification.png"
+        fig.tight_layout()
+        fig.savefig(class_map_path, bbox_inches="tight")
+        plt.close(fig)
+
+        # Compile Regional Class Statistics Table
+        pixel_area_km2 = (self.terrain_cfg.grid_resolution_m / 1000.0) ** 2
+        ice_mask = prods["high_prob_ice_mask"] > 0
+        rock_mask = prods["rocky_terrain_mask"] > 0
+        bg_mask_eff = ~(ice_mask | rock_mask)
+
+        def get_stats(m):
+            return {
+                "Area_km2": round(float(np.sum(m) * pixel_area_km2), 2),
+                "Fraction_pct": round(float(100.0 * np.sum(m) / m.size), 2),
+                "Mean_CPR_L": round(float(np.mean(inputs["cpr_l"][m])), 3),
+                "Mean_CPR_S": round(float(np.mean(inputs["cpr_s"][m])), 3),
+                "Mean_Delta_CPR": round(float(np.mean(prods["delta_cpr"][m])), 3),
+                "Mean_DOP_L": round(float(np.mean(inputs["dop_l"][m])), 3)
+            }
+
+        class_stats = pd.DataFrame([
+            {"Terrain_Class": "Subsurface Ice Deposit", **get_stats(ice_mask)},
+            {"Terrain_Class": "Rocky Ejecta / Rim", **get_stats(rock_mask)},
+            {"Terrain_Class": "Background Regolith", **get_stats(bg_mask_eff)}
+        ])
+        stats_path = TABLES_DIR / "phase2_terrain_class_statistics.csv"
+        class_stats.to_csv(stats_path, index=False)
+
+        # Run Sensitivity Analysis
+        df_sens = self.run_sensitivity_analysis(inputs, control_mask)
+        sens_path = TABLES_DIR / "phase2_threshold_sensitivity_analysis.csv"
+        df_sens.to_csv(sens_path, index=False)
+
+        return {
+            "class_stats": class_stats,
+            "sensitivity": df_sens,
+            "maps": [map_ice_prob, map_delta_cpr, class_map_path]
+        }
+
+
+def run_phase2():
+    print("[*] Running Phase 2: Ice Detection and Discrimination Framework...")
+    engine = IceDetectionEngine()
+    results = engine.process_and_export()
+    print("[+] Phase 2 completed successfully!")
+    print("\n--- Terrain Class Statistics ---")
+    print(results["class_stats"].to_string(index=False))
+    print("\n--- Sensitivity Analysis Sample ---")
+    print(results["sensitivity"].head().to_string(index=False))
+    return results
+
+
+if __name__ == "__main__":
+    run_phase2()

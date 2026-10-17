@@ -1,0 +1,10 @@
+CPR_Threshold,DOP_Threshold,Detected_Ice_Pixels,Detected_Ice_Area_km2,Control_False_Positives,Control_False_Positive_Rate_pct
+0.8,0.1,1,0.0,0,0.0
+0.8,0.13,4,0.002,0,0.0
+0.8,0.16,23,0.009,0,0.0
+1.0,0.1,0,0.0,0,0.0
+1.0,0.13,1,0.0,0,0.0
+1.0,0.16,10,0.004,0,0.0
+1.2,0.1,0,0.0,0,0.0
+1.2,0.13,0,0.0,0,0.0
+1.2,0.16,3,0.001,0,0.0
