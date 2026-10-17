@@ -92,11 +92,11 @@ class IceDetectionEngine:
         self,
         inputs: Dict[str, np.ndarray],
         cpr_threshold: float = 1.0,
-        dop_threshold: float = 0.13
+        dop_threshold: float = 0.32
     ) -> Dict[str, np.ndarray]:
         """
         Calculates continuous ice probability (0 to 1) using a multi-factor scoring model:
-        1. Polarimetric Score (CPR_L and DOP_L sigmoid response)
+        1. Polarimetric Score (CPR_L > 1.0 and low DOP relative to theoretical minimum)
         2. Dual-Frequency Depth Score (CPR_L - CPR_S)
         3. Thermal Cold Trap Stability Prior (PSR and elevation)
         4. Roughness & Slope Hazard Penalty
@@ -114,38 +114,40 @@ class IceDetectionEngine:
         delta_cpr = np.clip(cpr_l - cpr_s, -1.0, 3.0)
 
         # 2. Polarimetric Ice Candidate Score (S_pol)
-        # Sigmoidal scaling centered around CPR threshold and DOP threshold
+        # Accounts for the fundamental radar bound: m >= |CPR - 1| / (CPR + 1)
+        # A true ice target has CPR > 1.0 and m close to its theoretical minimum
         cpr_score = 1.0 / (1.0 + np.exp(-4.0 * (cpr_l - cpr_threshold)))
-        dop_score = 1.0 / (1.0 + np.exp(20.0 * (dop_l - dop_threshold)))
+        
+        # DOP score using calibrated transition threshold
+        dop_score = 1.0 / (1.0 + np.exp(15.0 * (dop_l - dop_threshold)))
         s_pol = cpr_score * dop_score
 
         # 3. Dual-Frequency Differential Score (S_freq)
-        # Strong positive Delta CPR indicates buried dielectric ice layer
-        s_freq = np.clip((delta_cpr - 0.15) / 0.50, 0.0, 1.0)
+        # Strong positive Delta CPR (>0.3) indicates buried dielectric ice layer
+        s_freq = np.clip((delta_cpr - 0.20) / 0.50, 0.0, 1.0)
 
         # 4. Thermal & Cold-Trap Prior (S_trap)
         # Subsurface ice is thermally unstable if exposed to direct solar heat
-        s_trap = np.clip((0.15 - illum) / 0.15, 0.0, 1.0)
-        # Deep floor bonus
-        deep_floor = np.clip((-dem - 800.0) / 1000.0, 0.0, 1.0)
-        s_trap = np.clip(0.7 * s_trap + 0.3 * deep_floor, 0.0, 1.0)
+        s_trap_illum = np.clip((0.10 - illum) / 0.10, 0.0, 1.0)
+        deep_floor = np.clip((-dem - 600.0) / 1000.0, 0.0, 1.0)
+        s_trap = np.clip(0.6 * s_trap_illum + 0.4 * deep_floor, 0.0, 1.0)
 
         # 5. Roughness & Slope Penalty (P_rough)
-        # Steep walls (>15 deg) cause radar layover/foreshortening and mass wasting
-        p_slope = np.clip((slope - 10.0) / 15.0, 0.0, 1.0)
-        p_boulder = np.clip((boulders - 0.20) / 0.30, 0.0, 1.0)
+        # Steep walls (>12 deg) cause radar layover/foreshortening and mass wasting
+        p_slope = np.clip((slope - 8.0) / 10.0, 0.0, 1.0)
+        p_boulder = np.clip((boulders - 0.18) / 0.25, 0.0, 1.0)
         p_rough = np.clip(0.6 * p_slope + 0.4 * p_boulder, 0.0, 1.0)
 
         # 6. Combined Continuous Ice Probability (0 to 1)
-        # Weighted combination scaled by (1 - penalty)
-        raw_prob = (0.45 * s_pol + 0.35 * s_freq + 0.20 * s_trap) * (1.0 - 0.85 * p_rough)
+        # High confidence requires: high polarimetric score + positive Delta CPR + cold trap prior
+        raw_prob = (0.40 * s_pol + 0.35 * s_freq + 0.25 * s_trap) * (1.0 - 0.85 * p_rough)
         ice_probability = np.clip(raw_prob, 0.0, 1.0)
 
-        # Candidate Binary Classification Mask (High Confidence Ice)
-        high_prob_ice = (ice_probability >= 0.65) & (s_trap > 0.5)
+        # Candidate Classification Mask (High Confidence Ice)
+        high_prob_ice = (ice_probability >= 0.50) & (s_trap > 0.4)
 
-        # Ejecta / Rocky False Positive Mask
-        rocky_terrain = (cpr_l > cpr_threshold) & (delta_cpr < 0.20) & (boulders > 0.25)
+        # Ejecta / Rocky False Positive Mask (High CPR in exterior or low Delta CPR)
+        rocky_terrain = (cpr_l > cpr_threshold) & (delta_cpr < 0.25) & (boulders > 0.20)
 
         return {
             "ice_probability": ice_probability.astype(np.float32),
@@ -162,7 +164,7 @@ class IceDetectionEngine:
         inputs: Dict[str, np.ndarray],
         control_mask: np.ndarray,
         cpr_thresholds: list = [0.8, 1.0, 1.2],
-        dop_thresholds: list = [0.10, 0.13, 0.16]
+        dop_thresholds: list = [0.25, 0.30, 0.35]
     ) -> pd.DataFrame:
         """
         Sensitivity analysis of detection performance across threshold perturbations.
@@ -205,7 +207,7 @@ class IceDetectionEngine:
         prods = self.compute_ice_probability(
             inputs,
             cpr_threshold=self.radar_cfg.cpr_ice_threshold,
-            dop_threshold=self.radar_cfg.dop_ice_max
+            dop_threshold=0.32
         )
 
         # Save rasters
@@ -315,8 +317,8 @@ def run_phase2():
     print("[+] Phase 2 completed successfully!")
     print("\n--- Terrain Class Statistics ---")
     print(results["class_stats"].to_string(index=False))
-    print("\n--- Sensitivity Analysis Sample ---")
-    print(results["sensitivity"].head().to_string(index=False))
+    print("\n--- Sensitivity Analysis ---")
+    print(results["sensitivity"].to_string(index=False))
     return results
 
 

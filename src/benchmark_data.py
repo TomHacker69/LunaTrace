@@ -48,11 +48,13 @@ def generate_benchmark_crater_data(
     rim_factor = np.exp(-((r - crater_radius) ** 2) / (2 * (800.0 ** 2)))
     elev += rim_height * rim_factor
     
-    # Random topographic roughness (craterlets and mounds)
-    roughness = (
-        np.random.normal(0, 15, size=elev.shape) +
-        25.0 * np.sin(xx / 300.0) * np.cos(yy / 300.0)
+    # Random topographic roughness (craterlets and mounds, spatially correlated)
+    from scipy.ndimage import gaussian_filter
+    raw_roughness = (
+        np.random.normal(0, 30.0, size=elev.shape) +
+        35.0 * np.sin(xx / 400.0) * np.cos(yy / 400.0)
     )
+    roughness = gaussian_filter(raw_roughness, sigma=4.0)
     elev += roughness
     
     # 2. Illumination & Permanently Shadowed Region (PSR)
