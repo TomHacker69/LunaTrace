@@ -73,11 +73,13 @@ def generate_benchmark_crater_data(
     earth_los = np.clip((yy + half_width) / (2 * half_width) + (elev / 3000.0), 0.0, 1.0)
     earth_los[r < crater_radius * 0.8] = 0.0  # Floor blocked by high rim walls
     
-    # Boulder & Roughness Hazard Distribution (high on steep rim walls and fresh ejecta)
+    # Boulder & Roughness Hazard Distribution
+    # High on steep rim walls (>15 deg) and blocky ejecta ridges, low on smooth terraces
+    wall_slope_proxy = np.clip(np.abs(r - crater_radius) / 1000.0, 0.0, 1.0)
     boulder_density = np.clip(
-        0.15 * rim_factor +
-        0.25 * (r > crater_radius * 0.85) * (r < crater_radius * 1.1) +
-        np.random.exponential(0.04, size=elev.shape),
+        0.35 * (1.0 - wall_slope_proxy) * (r < crater_radius * 1.05) +  # Inner wall blocks
+        0.15 * rim_factor * (xx > 0) +                                  # Asymmetric ejecta ray
+        np.random.exponential(0.02, size=elev.shape),
         0.0, 1.0
     )
     
