@@ -133,7 +133,7 @@ def test_phase5_pathfinding_and_battery():
     assert len(path) > 10
     metrics = planner.simulate_power_and_metrics(path, rasters)
     assert metrics["max_slope_deg"] <= CFG.rover.max_nav_slope_deg
-    assert metrics["min_soc_pct"] > 20.0  # Battery reserve preserved
+    assert metrics["min_soc_pct"] > CFG.rover.min_battery_reserve_pct  # Battery reserve preserved
 
 
 def test_phase6_volume_estimation():

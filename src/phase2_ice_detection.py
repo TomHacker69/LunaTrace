@@ -24,6 +24,7 @@ class IceDetectionEngine:
     def __init__(self, config=CFG):
         self.cfg = config
         self.radar_cfg = config.radar
+        self.ice_cfg = config.ice_detection
         self.terrain_cfg = config.terrain
 
     def load_inputs(self) -> Tuple[Dict[str, np.ndarray], rasterio.Affine, str]:
@@ -78,21 +79,25 @@ class IceDetectionEngine:
         slope = inputs["slope_deg"]
 
         # Interior cold trap: zero illumination and low elevation bowl
-        psr_mask = (illum < 0.05) & (dem < -500.0)
+        psr_mask = (illum < self.terrain_cfg.psr_illumination_cutoff) & (dem < self.ice_cfg.cold_trap_depth_m)
 
         # Exterior control region: Sunlit ejecta blanket outside rim with boulders
-        control_rocky_ejecta = (illum > 0.4) & (boulders > 0.20) & (dem > 0.0)
+        control_rocky_ejecta = (illum > self.ice_cfg.control_illum_min) & (boulders > self.ice_cfg.control_boulders_min) & (dem > 0.0)
 
         # Background highland regolith: smooth, illuminated, low boulder count
-        background_regolith = (illum > 0.3) & (boulders < 0.15) & (slope < 8.0)
+        background_regolith = (
+            (illum > self.ice_cfg.bg_regolith_illum_min) &
+            (boulders < self.ice_cfg.bg_regolith_boulders_max) &
+            (slope < self.ice_cfg.hazard_slope_baseline_deg)
+        )
 
         return psr_mask, control_rocky_ejecta, background_regolith
 
     def compute_ice_probability(
         self,
         inputs: Dict[str, np.ndarray],
-        cpr_threshold: float = 1.0,
-        dop_threshold: float = 0.32
+        cpr_threshold: float = None,
+        dop_threshold: float = None
     ) -> Dict[str, np.ndarray]:
         """
         Calculates continuous ice probability (0 to 1) using a multi-factor scoring model:
@@ -101,6 +106,11 @@ class IceDetectionEngine:
         3. Thermal Cold Trap Stability Prior (PSR and elevation)
         4. Roughness & Slope Hazard Penalty
         """
+        if cpr_threshold is None:
+            cpr_threshold = self.radar_cfg.cpr_ice_threshold
+        if dop_threshold is None:
+            dop_threshold = self.radar_cfg.dop_ice_max
+
         cpr_l = inputs["cpr_l"]
         dop_l = inputs["dop_l"]
         cpr_s = inputs["cpr_s"]
@@ -111,43 +121,41 @@ class IceDetectionEngine:
 
         # 1. Dual-frequency depth discriminator: Delta CPR (L - S)
         # Deep ice shows CPR_L >> CPR_S; surface rocks show CPR_L ~ CPR_S
-        delta_cpr = np.clip(cpr_l - cpr_s, -1.0, 3.0)
+        delta_cpr = np.clip(cpr_l - cpr_s, self.ice_cfg.delta_cpr_clip_min, self.ice_cfg.delta_cpr_clip_max)
 
         # 2. Polarimetric Ice Candidate Score (S_pol)
         # Accounts for the fundamental radar bound: m >= |CPR - 1| / (CPR + 1)
-        # A true ice target has CPR > 1.0 and m close to its theoretical minimum
-        cpr_score = 1.0 / (1.0 + np.exp(-4.0 * (cpr_l - cpr_threshold)))
-        
-        # DOP score using calibrated transition threshold
-        dop_score = 1.0 / (1.0 + np.exp(15.0 * (dop_l - dop_threshold)))
+        cpr_score = 1.0 / (1.0 + np.exp(-self.ice_cfg.cpr_sigmoid_steepness * (cpr_l - cpr_threshold)))
+        dop_score = 1.0 / (1.0 + np.exp(self.ice_cfg.dop_sigmoid_steepness * (dop_l - dop_threshold)))
         s_pol = cpr_score * dop_score
 
         # 3. Dual-Frequency Differential Score (S_freq)
-        # Strong positive Delta CPR (>0.3) indicates buried dielectric ice layer
-        s_freq = np.clip((delta_cpr - 0.20) / 0.50, 0.0, 1.0)
+        # Strong positive Delta CPR indicates buried dielectric ice layer
+        s_freq = np.clip((delta_cpr - self.ice_cfg.delta_cpr_min_threshold) / self.ice_cfg.delta_cpr_scale, 0.0, 1.0)
 
         # 4. Thermal & Cold-Trap Prior (S_trap)
-        # Subsurface ice is thermally unstable if exposed to direct solar heat
-        s_trap_illum = np.clip((0.10 - illum) / 0.10, 0.0, 1.0)
-        deep_floor = np.clip((-dem - 600.0) / 1000.0, 0.0, 1.0)
-        s_trap = np.clip(0.6 * s_trap_illum + 0.4 * deep_floor, 0.0, 1.0)
+        s_trap_illum = np.clip((self.ice_cfg.cold_trap_illum_threshold - illum) / self.ice_cfg.cold_trap_illum_threshold, 0.0, 1.0)
+        deep_floor = np.clip((-dem + self.ice_cfg.cold_trap_depth_m) / self.ice_cfg.trap_depth_normalization_m, 0.0, 1.0)
+        s_trap = np.clip(self.ice_cfg.weight_trap_illum * s_trap_illum + self.ice_cfg.weight_trap_depth * deep_floor, 0.0, 1.0)
 
         # 5. Roughness & Slope Penalty (P_rough)
-        # Steep walls (>12 deg) cause radar layover/foreshortening and mass wasting
-        p_slope = np.clip((slope - 8.0) / 10.0, 0.0, 1.0)
-        p_boulder = np.clip((boulders - 0.18) / 0.25, 0.0, 1.0)
-        p_rough = np.clip(0.6 * p_slope + 0.4 * p_boulder, 0.0, 1.0)
+        p_slope = np.clip((slope - self.ice_cfg.hazard_slope_baseline_deg) / self.ice_cfg.hazard_slope_scale_deg, 0.0, 1.0)
+        p_boulder = np.clip((boulders - self.ice_cfg.hazard_boulder_baseline) / self.ice_cfg.hazard_boulder_scale, 0.0, 1.0)
+        p_rough = np.clip(self.ice_cfg.weight_rough_slope * p_slope + self.ice_cfg.weight_rough_boulder * p_boulder, 0.0, 1.0)
 
         # 6. Combined Continuous Ice Probability (0 to 1)
-        # High confidence requires: high polarimetric score + positive Delta CPR + cold trap prior
-        raw_prob = (0.40 * s_pol + 0.35 * s_freq + 0.25 * s_trap) * (1.0 - 0.85 * p_rough)
+        raw_prob = (
+            self.ice_cfg.weight_pol * s_pol +
+            self.ice_cfg.weight_freq * s_freq +
+            self.ice_cfg.weight_trap * s_trap
+        ) * (1.0 - self.ice_cfg.roughness_penalty_scale * p_rough)
         ice_probability = np.clip(raw_prob, 0.0, 1.0)
 
         # Candidate Classification Mask (High Confidence Ice)
-        high_prob_ice = (ice_probability >= 0.50) & (s_trap > 0.4)
+        high_prob_ice = (ice_probability >= self.ice_cfg.high_prob_ice_cutoff) & (s_trap > self.ice_cfg.trap_confidence_cutoff)
 
         # Ejecta / Rocky False Positive Mask (High CPR in exterior or low Delta CPR)
-        rocky_terrain = (cpr_l > cpr_threshold) & (delta_cpr < 0.25) & (boulders > 0.20)
+        rocky_terrain = (cpr_l > cpr_threshold) & (delta_cpr < self.ice_cfg.rocky_delta_cpr_max) & (boulders > self.ice_cfg.control_boulders_min)
 
         return {
             "ice_probability": ice_probability.astype(np.float32),
@@ -163,13 +171,18 @@ class IceDetectionEngine:
         self,
         inputs: Dict[str, np.ndarray],
         control_mask: np.ndarray,
-        cpr_thresholds: list = [0.8, 1.0, 1.2],
-        dop_thresholds: list = [0.25, 0.30, 0.35]
+        cpr_thresholds: list = None,
+        dop_thresholds: list = None
     ) -> pd.DataFrame:
         """
         Sensitivity analysis of detection performance across threshold perturbations.
         Monitors detected ice area (km2) and false-positive rate in the control ejecta region.
         """
+        if cpr_thresholds is None:
+            cpr_thresholds = self.ice_cfg.sensitivity_cpr_thresholds
+        if dop_thresholds is None:
+            dop_thresholds = self.ice_cfg.sensitivity_dop_thresholds
+
         pixel_area_km2 = (self.terrain_cfg.grid_resolution_m / 1000.0) ** 2
         results = []
 
@@ -207,7 +220,7 @@ class IceDetectionEngine:
         prods = self.compute_ice_probability(
             inputs,
             cpr_threshold=self.radar_cfg.cpr_ice_threshold,
-            dop_threshold=0.32
+            dop_threshold=self.radar_cfg.dop_ice_max
         )
 
         # Save rasters
@@ -229,7 +242,7 @@ class IceDetectionEngine:
             vmax=1.0,
             cbar_label="Ice Probability (Multi-Discriminator Score)",
             overlay_contour=inputs["dem"],
-            contour_levels=[-1500, -1000, -500, 0, 500]
+            contour_levels=self.terrain_cfg.contour_levels
         )
 
         # Cartographic Map 2: Delta CPR (L-band minus S-band)
@@ -238,11 +251,11 @@ class IceDetectionEngine:
             title="DFSAR Dual-Frequency Differential CPR (L-band - S-band)",
             output_filename="map_phase2_delta_cpr.png",
             cmap="RdYlBu_r",
-            vmin=-0.5,
-            vmax=1.2,
+            vmin=self.ice_cfg.delta_cpr_plot_vmin,
+            vmax=self.ice_cfg.delta_cpr_plot_vmax,
             cbar_label="Delta CPR (L - S) [Buried Ice Indicator]",
             overlay_contour=inputs["dem"],
-            contour_levels=[-1500, -1000, -500, 0, 500]
+            contour_levels=self.terrain_cfg.contour_levels
         )
 
         # Cartographic Map 3: Geological Classification Overlay
@@ -255,7 +268,8 @@ class IceDetectionEngine:
         from matplotlib.colors import ListedColormap
         fig, ax = plt.subplots(figsize=(9, 8), dpi=300)
         custom_cmap = ListedColormap(["#2b2b2b", "#d95f02", "#00d2ff"])  # Gray, Orange, Cyan
-        cax = ax.imshow(classified, extent=[-10, 10, -10, 10], origin="upper", cmap=custom_cmap)
+        ext = self.terrain_cfg.extent_km
+        cax = ax.imshow(classified, extent=[-ext, ext, -ext, ext], origin="upper", cmap=custom_cmap)
         ax.set_title("Geological Discrimination: Ice vs. Rocky Ejecta vs. Regolith", fontsize=12, fontweight="bold")
         ax.set_xlabel("East-West Distance (km)")
         ax.set_ylabel("North-South Distance (km)")

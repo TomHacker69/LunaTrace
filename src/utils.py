@@ -99,7 +99,7 @@ def plot_cartographic_map(
     vmin: Optional[float] = None,
     vmax: Optional[float] = None,
     cbar_label: str = "",
-    extent_km: Tuple[float, float, float, float] = (-10, 10, -10, 10),
+    extent_km: Optional[Tuple[float, float, float, float]] = None,
     overlay_contour: Optional[np.ndarray] = None,
     contour_levels: Optional[list] = None,
     points_to_plot: Optional[list] = None,  # List of tuples: (x, y, label, marker, color)
@@ -108,6 +108,10 @@ def plot_cartographic_map(
     """
     Renders publication-standard lunar maps with scale bar, coordinates, North arrow, and high-contrast colorbars.
     """
+    if extent_km is None:
+        ext = CFG.terrain.extent_km
+        extent_km = (-ext, ext, -ext, ext)
+
     fig, ax = plt.subplots(figsize=(9, 8), dpi=300)
     
     norm = Normalize(vmin=vmin if vmin is not None else np.nanpercentile(data, 2),
@@ -136,7 +140,7 @@ def plot_cartographic_map(
         for pt_x, pt_y, pt_label, pt_marker, pt_col in points_to_plot:
             ax.scatter(pt_x, pt_y, color=pt_col, marker=pt_marker, s=90, edgecolors="black", zorder=6, label=pt_label)
             ax.annotate(f" {pt_label}", (pt_x, pt_y), color="white", fontsize=9, fontweight="bold",
-                        bbox=dict(boxstyle="round,pad=0.2", fc="black", alpha=0.6))
+                         bbox=dict(boxstyle="round,pad=0.2", fc="black", alpha=0.6))
             
     if traverses_to_plot:
         for tx, ty, tlabel, tcol, tstyle in traverses_to_plot:
@@ -148,7 +152,7 @@ def plot_cartographic_map(
     ax.set_ylabel("North-South Distance from Crater Center (km)", fontsize=10)
     
     # Scale Bar (AnchoredSizeBar)
-    bar_length_km = 4.0
+    bar_length_km = CFG.terrain.scale_bar_length_km
     scalebar = AnchoredSizeBar(
         ax.transData,
         bar_length_km,

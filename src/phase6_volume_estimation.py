@@ -65,10 +65,10 @@ class IceVolumeEstimator:
         and polarimetric CBOE enhancement scaling.
         f_ice(x, y) = base_fraction * P_ice(x, y) * [(CPR_L - 1.0) / (2.0 - 1.0)]
         """
-        cpr_norm = np.clip((cpr_l - self.radar_cfg.cpr_ice_threshold) / 1.0, 0.0, 1.5)
+        cpr_norm = np.clip((cpr_l - self.radar_cfg.cpr_ice_threshold) / self.volume_cfg.cpr_scale_range, 0.0, self.volume_cfg.cpr_norm_max_factor)
         # Weight by continuous multi-discriminator ice probability
         ice_fraction = base_fraction * ice_prob * cpr_norm
-        return np.clip(ice_fraction, 0.0, 0.60)  # Maximum physical pore volume saturation
+        return np.clip(ice_fraction, 0.0, self.volume_cfg.max_pore_saturation)
 
     def compute_scenario_volumes(
         self,
@@ -82,32 +82,9 @@ class IceVolumeEstimator:
         ice_mask = rasters["ice_mask"] > 0
 
         res_m = self.terrain_cfg.grid_resolution_m
-        pixel_area_m2 = res_m * res_m  # 400 m2
-        ice_density_kg_m3 = 920.0  # Density of crystalline water ice (0.92 metric tons/m3)
-
-        scenarios = {
-            "Low (Conservative)": {
-                "base_fraction": 0.05,        # 5% sparse pore filling
-                "eff_depth_m": 2.0,            # Restricted to shallow active penetration
-                "dry_lag_m": 0.8,              # 0.8 m desiccated sublimation lag
-                "active_depth_m": 1.2,         # eff_depth - dry_lag
-                "description": "Sparse disseminated pore ice; thick 0.8m dry lag; shallow penetration depth (2.0m)"
-            },
-            "Nominal (Realistic)": {
-                "base_fraction": 0.15,       # 15% ice-regolith breccia
-                "eff_depth_m": 3.5,            # Mean L-band radar penetration depth
-                "dry_lag_m": 0.5,              # 0.5 m dry regolith thermal lag
-                "active_depth_m": 3.0,         # eff_depth - dry_lag
-                "description": "Heterogeneous ice-regolith breccia; 0.5m dry lag; L-band penetration depth (3.5m)"
-            },
-            "High (Optimistic)": {
-                "base_fraction": 0.30,        # 30% segregated ice lenses
-                "eff_depth_m": 5.0,            # Full 5 m regolith column
-                "dry_lag_m": 0.3,              # 0.3 m thin protective lag
-                "active_depth_m": 4.7,         # eff_depth - dry_lag
-                "description": "Segregated ice lenses / paleo-cometary deposits; full 0-5m column extrapolated"
-            }
-        }
+        pixel_area_m2 = res_m * res_m
+        ice_density_kg_m3 = self.volume_cfg.ice_density_kg_m3
+        scenarios = self.volume_cfg.scenarios
 
         results = []
         fraction_maps = {}
@@ -169,10 +146,14 @@ class IceVolumeEstimator:
         ice_prob = rasters["ice_prob"]
         ice_mask = rasters["ice_mask"] > 0
         pixel_area_m2 = (self.terrain_cfg.grid_resolution_m) ** 2
-        ice_density_kg_m3 = 920.0
+        ice_density_kg_m3 = self.volume_cfg.ice_density_kg_m3
 
-        fractions_range = np.linspace(0.02, 0.35, 50)
-        depth_options = [1.5, 2.5, 3.5, 5.0]  # meters
+        fractions_range = np.linspace(
+            self.volume_cfg.sensitivity_fractions_min,
+            self.volume_cfg.sensitivity_fractions_max,
+            self.volume_cfg.sensitivity_fractions_steps
+        )
+        depth_options = self.volume_cfg.sensitivity_depths
 
         fig, ax = plt.subplots(figsize=(9, 6), dpi=300)
         colors = ["#2b83ba", "#abdda4", "#fdae61", "#d7191c"]
@@ -181,17 +162,23 @@ class IceVolumeEstimator:
             masses_megatons = []
             for bf in fractions_range:
                 f_map = self.compute_local_ice_fraction(cpr_l, ice_prob, base_fraction=bf)
-                pure_col = np.where(ice_mask, f_map * (depth - 0.5), 0.0)  # 0.5m nominal lag
+                pure_col = np.where(ice_mask, f_map * max(depth - self.volume_cfg.nominal_lag_m, 0.0), 0.0)
                 vol_m3 = np.sum(pure_col) * pixel_area_m2
                 mass_mt = (vol_m3 * ice_density_kg_m3) / 1e9
                 masses_megatons.append(mass_mt)
 
             ax.plot(fractions_range * 100, masses_megatons, label=f"Column Depth = {depth} m", color=color, linewidth=2.4)
 
-        # Highlight Nominal, Low, and High points
-        ax.scatter([5.0], [0.38], color="#2b83ba", s=90, zorder=6, label="Low Scenario (5%, 2.0m)")
-        ax.scatter([15.0], [2.86], color="#fdae61", s=110, zorder=6, label="Nominal Scenario (15%, 3.5m)")
-        ax.scatter([30.0], [8.95], color="#d7191c", s=120, zorder=6, label="High Scenario (30%, 5.0m)")
+        # Dynamically highlight configured scenarios
+        scen_colors = {"Low (Conservative)": "#2b83ba", "Nominal (Realistic)": "#fdae61", "High (Optimistic)": "#d7191c"}
+        for s_name, s_cfg in self.volume_cfg.scenarios.items():
+            s_f = s_cfg["base_fraction"]
+            s_d = s_cfg["active_depth_m"]
+            f_map = self.compute_local_ice_fraction(cpr_l, ice_prob, base_fraction=s_f)
+            pure_col = np.where(ice_mask, f_map * s_d, 0.0)
+            s_mass = (np.sum(pure_col) * pixel_area_m2 * ice_density_kg_m3) / 1e9
+            ax.scatter([s_f * 100], [s_mass], color=scen_colors.get(s_name, "black"), s=100, zorder=6,
+                       label=f"{s_name.split()[0]} Scenario ({s_f*100:.0f}%, {s_cfg['eff_depth_m']}m)")
 
         ax.set_title("Subsurface Water Ice Resource Sensitivity to Dielectric Parameters & Depth", fontsize=12, fontweight="bold", pad=12)
         ax.set_xlabel("Volumetric Ice Fraction in Regolith Matrix (%)", fontsize=11, fontweight="bold")

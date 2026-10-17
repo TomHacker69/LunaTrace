@@ -72,8 +72,7 @@ class RoverTraversePlanner:
         illum = rasters["illumination"]
 
         # Hard No-Go Obstacle Mask
-        # Slope > max_nav_slope_deg (12.0 deg) or boulder hazard > 0.40
-        obstacle_mask = (slope > self.rover_cfg.max_nav_slope_deg) | (boulders > 0.40)
+        obstacle_mask = (slope > self.rover_cfg.max_nav_slope_deg) | (boulders > self.rover_cfg.max_boulder_hazard)
 
         # Baseline terrain cost
         res = self.terrain_cfg.grid_resolution_m
@@ -81,17 +80,17 @@ class RoverTraversePlanner:
 
         if mode == "shortest":
             # Direct Euclidean progress with minimal penalty
-            slope_penalty = np.exp(slope / 5.0)
-            cost = 1.0 + 0.5 * slope_penalty + 0.3 * norm_rough
+            slope_penalty = np.exp(slope / self.rover_cfg.slope_scale_shortest)
+            cost = 1.0 + self.rover_cfg.weight_slope_shortest * slope_penalty + self.rover_cfg.weight_rough_shortest * norm_rough
         elif mode == "safest":
             # Maximum safety: smooth exponential slope penalty and roughness/boulder avoidance
-            slope_penalty = np.exp(slope / 4.0)
-            cost = 1.0 + 1.8 * slope_penalty + 3.0 * norm_rough + 2.5 * boulders
+            slope_penalty = np.exp(slope / self.rover_cfg.slope_scale_safest)
+            cost = 1.0 + self.rover_cfg.weight_slope_safest * slope_penalty + self.rover_cfg.weight_rough_safest * norm_rough + self.rover_cfg.weight_boulder_safest * boulders
         elif mode == "best_illuminated":
             # Maximizes solar generation: heavy penalty on shadowed terrain
-            slope_penalty = np.exp(slope / 3.5)
-            shadow_penalty = 12.0 * (1.0 - np.clip(illum, 0.0, 1.0))
-            cost = 1.0 + 1.2 * slope_penalty + 1.5 * norm_rough + shadow_penalty
+            slope_penalty = np.exp(slope / self.rover_cfg.slope_scale_illuminated)
+            shadow_penalty = self.rover_cfg.weight_shadow_illuminated * (1.0 - np.clip(illum, 0.0, 1.0))
+            cost = 1.0 + self.rover_cfg.weight_slope_illuminated * slope_penalty + self.rover_cfg.weight_rough_illuminated * norm_rough + shadow_penalty
         else:
             raise ValueError(f"Unknown mode: {mode}")
 
@@ -307,7 +306,7 @@ class RoverTraversePlanner:
                 "Mean_Slope_deg": routes["shortest"]["mean_slope_deg"],
                 "Min_Battery_SoC_pct": routes["shortest"]["min_soc_pct"],
                 "Energy_Consumed_Wh": routes["shortest"]["energy_consumed_wh"],
-                "Traverse_Feasible": routes["shortest"]["min_soc_pct"] > 20.0 and routes["shortest"]["max_slope_deg"] <= self.rover_cfg.max_nav_slope_deg
+                "Traverse_Feasible": routes["shortest"]["min_soc_pct"] > self.rover_cfg.min_battery_reserve_pct and routes["shortest"]["max_slope_deg"] <= self.rover_cfg.max_nav_slope_deg
             },
             {
                 "Route_Name": "Safest Route (RECOMMENDED)",
@@ -319,7 +318,7 @@ class RoverTraversePlanner:
                 "Mean_Slope_deg": routes["safest"]["mean_slope_deg"],
                 "Min_Battery_SoC_pct": routes["safest"]["min_soc_pct"],
                 "Energy_Consumed_Wh": routes["safest"]["energy_consumed_wh"],
-                "Traverse_Feasible": routes["safest"]["min_soc_pct"] > 20.0 and routes["safest"]["max_slope_deg"] <= self.rover_cfg.max_nav_slope_deg
+                "Traverse_Feasible": routes["safest"]["min_soc_pct"] > self.rover_cfg.min_battery_reserve_pct and routes["safest"]["max_slope_deg"] <= self.rover_cfg.max_nav_slope_deg
             },
             {
                 "Route_Name": "Best-Illuminated Route",
@@ -331,7 +330,7 @@ class RoverTraversePlanner:
                 "Mean_Slope_deg": routes["best_illuminated"]["mean_slope_deg"],
                 "Min_Battery_SoC_pct": routes["best_illuminated"]["min_soc_pct"],
                 "Energy_Consumed_Wh": routes["best_illuminated"]["energy_consumed_wh"],
-                "Traverse_Feasible": routes["best_illuminated"]["min_soc_pct"] > 20.0 and routes["best_illuminated"]["max_slope_deg"] <= self.rover_cfg.max_nav_slope_deg
+                "Traverse_Feasible": routes["best_illuminated"]["min_soc_pct"] > self.rover_cfg.min_battery_reserve_pct and routes["best_illuminated"]["max_slope_deg"] <= self.rover_cfg.max_nav_slope_deg
             }
         ]
 
@@ -379,7 +378,7 @@ class RoverTraversePlanner:
             vmax=1.0,
             cbar_label="Solar Illumination Fraction (White: Sunlit, Black: PSR)",
             overlay_contour=rasters["dem"],
-            contour_levels=[-1500, -1000, -500, 0, 500],
+            contour_levels=self.terrain_cfg.contour_levels,
             points_to_plot=points_to_plot,
             traverses_to_plot=traverses_to_plot
         )
@@ -400,7 +399,7 @@ class RoverTraversePlanner:
 
         # Slope Profile with Rover Hazard Threshold
         ax2.plot(dists_km, safest["slope_profile"], color="#d62728", linewidth=2.0, label="Terrain Slope (°)")
-        ax2.axhline(self.rover_cfg.max_nav_slope_deg, color="black", linestyle="--", linewidth=1.5, label="Max Rover Limit (12°)")
+        ax2.axhline(self.rover_cfg.max_nav_slope_deg, color="black", linestyle="--", linewidth=1.5, label=f"Max Rover Limit ({self.rover_cfg.max_nav_slope_deg:.0f}°)")
         ax2.set_ylabel("Slope (deg)", fontsize=10, fontweight="bold")
         ax2.set_ylim(0, 16)
         ax2.grid(True, linestyle="--", alpha=0.3)
@@ -408,7 +407,7 @@ class RoverTraversePlanner:
 
         # Battery State of Charge (SoC) Profile
         ax3.plot(dists_km, safest["soc_history"], color="#2ca02c", linewidth=2.2, label="Battery State of Charge (%)")
-        ax3.axhline(20.0, color="orange", linestyle="--", linewidth=1.5, label="20% Reserve Margin")
+        ax3.axhline(self.rover_cfg.min_battery_reserve_pct, color="orange", linestyle="--", linewidth=1.5, label=f"{self.rover_cfg.min_battery_reserve_pct:.0f}% Reserve Margin")
         ax3.set_xlabel("Traverse Distance along Route (km)", fontsize=10, fontweight="bold")
         ax3.set_ylabel("Battery SoC (%)", fontsize=10, fontweight="bold")
         ax3.set_ylim(0, 105)

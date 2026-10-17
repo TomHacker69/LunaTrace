@@ -93,24 +93,20 @@ class LandingSiteSelector:
         dist_to_ice = self.compute_distance_to_ice(ice_mask, resolution_m=self.terrain_cfg.grid_resolution_m)
 
         # 1. Hard Engineering Constraints (Boolean Mask)
-        # - Slope strictly < max_landing_slope_deg (5.0 deg)
-        # - Boulder hazard < 0.35
-        # - Non-shadowed region (illumination > 0.15, strictly outside permanent shadow)
-        # - Safe standoff distance: between min_crater_distance_m (1 km) and max_crater_distance_m (7.5 km)
         valid_slope = slope <= self.landing_cfg.max_landing_slope_deg
-        valid_boulders = boulders < 0.30
-        valid_illum = illum > 0.20
+        valid_boulders = boulders < self.landing_cfg.max_boulder_density
+        valid_illum = illum > self.landing_cfg.min_illumination_fraction
         valid_distance = (dist_to_ice >= self.landing_cfg.min_crater_distance_m) & \
                          (dist_to_ice <= self.landing_cfg.max_crater_distance_m)
 
         safe_landing_mask = valid_slope & valid_boulders & valid_illum & valid_distance
 
         # 2. Normalized Criterion Scores (0 to 1, higher is better)
-        # Criterion A: Slope (0 deg is 1.0, 5 deg is 0.0)
+        # Criterion A: Slope (0 deg is 1.0, max_slope is 0.0)
         c_slope = np.clip(1.0 - (slope / self.landing_cfg.max_landing_slope_deg), 0.0, 1.0)
 
         # Criterion B: Roughness (smoother is 1.0)
-        max_r = np.percentile(roughness, 95) + 1e-6
+        max_r = np.percentile(roughness, self.landing_cfg.roughness_percentile) + 1e-6
         c_roughness = np.clip(1.0 - (roughness / max_r), 0.0, 1.0)
 
         # Criterion C: Solar Illumination (continuous 0 to 1)
@@ -119,9 +115,8 @@ class LandingSiteSelector:
         # Criterion D: Earth Line-of-Sight Visibility (continuous 0 to 1)
         c_earth = np.clip(earth_los, 0.0, 1.0)
 
-        # Criterion E: Proximity to Ice Target (closer to min_crater_distance_m is optimal for traverse)
-        # Optimal distance is near ~1.5 - 2.5 km (close enough for rover, safe from rim cliffs)
-        optimal_dist = 2000.0
+        # Criterion E: Proximity to Ice Target
+        optimal_dist = self.landing_cfg.optimal_ice_distance_m
         c_ice_dist = np.clip(1.0 - np.abs(dist_to_ice - optimal_dist) / (self.landing_cfg.max_crater_distance_m - self.landing_cfg.min_crater_distance_m), 0.0, 1.0)
 
         # 3. Weighted Multi-Criteria Overlay (MCO)
@@ -147,12 +142,16 @@ class LandingSiteSelector:
         data: Dict[str, np.ndarray],
         dist_to_ice: np.ndarray,
         transform: rasterio.Affine,
-        top_k: int = 3,
-        min_separation_pixels: int = 25  # ~500 m separation between distinct sites
+        top_k: int = None,
+        min_separation_pixels: int = None
     ) -> pd.DataFrame:
         """
         Extracts top-ranked candidate landing sites with spatial separation.
         """
+        if top_k is None:
+            top_k = self.landing_cfg.top_k_sites
+        if min_separation_pixels is None:
+            min_separation_pixels = self.landing_cfg.spatial_separation_pixels
         res = self.terrain_cfg.grid_resolution_m
         ny, nx = suitability.shape
         half_w = (nx * res) / 2.0
@@ -173,8 +172,9 @@ class LandingSiteSelector:
             y_km = (half_w - py * res) / 1000.0
 
             # Geographic approx
-            lat = self.terrain_cfg.center_lat + (y_km / 30.2)
-            lon = self.terrain_cfg.center_lon + (x_km / (30.2 * np.cos(np.radians(abs(lat)))))
+            km_deg = self.terrain_cfg.km_per_deg_lat
+            lat = self.terrain_cfg.center_lat + (y_km / km_deg)
+            lon = self.terrain_cfg.center_lon + (x_km / (km_deg * np.cos(np.radians(abs(lat)))))
 
             site_info = {
                 "Rank": rank,
@@ -257,7 +257,7 @@ class LandingSiteSelector:
             vmax=1.0,
             cbar_label="Multi-Criteria Landing Suitability Score (0 to 1)",
             overlay_contour=data["dem"],
-            contour_levels=[-1500, -1000, -500, 0, 500],
+            contour_levels=self.terrain_cfg.contour_levels,
             points_to_plot=points_to_plot
         )
 

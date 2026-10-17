@@ -24,6 +24,8 @@ class TerrainIlluminationEngine:
     def __init__(self, config=CFG):
         self.cfg = config
         self.terrain_cfg = config.terrain
+        self.landing_cfg = config.landing
+        self.rover_cfg = config.rover
 
     def load_dem(self) -> Tuple[np.ndarray, rasterio.Affine, str]:
         """Loads LOLA DEM raster."""
@@ -54,9 +56,9 @@ class TerrainIlluminationEngine:
         aspect_rad = np.arctan2(-dx, dy)
         aspect_deg = (np.degrees(aspect_rad) + 360.0) % 360.0
 
-        # Topographic RMS Roughness over a 5x5 moving window (100 m baseline)
-        mean_elev = uniform_filter(dem, size=5)
-        mean_sq_elev = uniform_filter(dem ** 2, size=5)
+        # Topographic RMS Roughness over a moving window
+        mean_elev = uniform_filter(dem, size=self.terrain_cfg.rms_window_size)
+        mean_sq_elev = uniform_filter(dem ** 2, size=self.terrain_cfg.rms_window_size)
         rms_roughness = np.sqrt(np.maximum(mean_sq_elev - mean_elev ** 2, 0.0))
 
         # Topographic Curvature (Laplacian: second derivative for convex rims / concave bowls)
@@ -74,13 +76,16 @@ class TerrainIlluminationEngine:
     def compute_illumination_and_psr(
         self,
         dem: np.ndarray,
-        resolution_m: float = 20.0
+        resolution_m: float = None
     ) -> Dict[str, np.ndarray]:
         """
         Simulates lunar South Pole solar illumination using azimuthal horizon ray-tracing.
-        Models grazing solar elevation angles (-1.5 deg to +1.5 deg) over the 18.6-year lunar cycle.
+        Models grazing solar elevation angles over the lunar precession cycle.
         Identifies Permanently Shadowed Regions (PSRs) and Doubly Shadowed Core Zones.
         """
+        if resolution_m is None:
+            resolution_m = self.terrain_cfg.grid_resolution_m
+
         ny, nx = dem.shape
         half_w = (nx * resolution_m) / 2.0
         x = np.linspace(-half_w, half_w, nx)
@@ -88,13 +93,13 @@ class TerrainIlluminationEngine:
         xx, yy = np.meshgrid(x, y)
         r = np.sqrt(xx ** 2 + yy ** 2)
 
-        # Multi-angle horizon profiling across 16 solar azimuth directions
-        num_azimuths = 16
+        # Multi-angle horizon profiling across azimuth directions
+        num_azimuths = self.terrain_cfg.num_horizon_azimuths
         azimuth_angles = np.linspace(0, 2 * np.pi, num_azimuths, endpoint=False)
         horizon_elevations = np.zeros((num_azimuths, ny, nx), dtype=np.float32)
 
         # Ray-march radially outward to determine topographic horizon angle
-        step_distances = np.array([60, 120, 240, 500, 1000, 2000, 4000], dtype=float)
+        step_distances = np.array(self.terrain_cfg.ray_step_distances_m, dtype=float)
         
         for i, az in enumerate(azimuth_angles):
             dx_step = np.cos(az)
@@ -113,29 +118,24 @@ class TerrainIlluminationEngine:
 
             horizon_elevations[i] = np.degrees(np.arctan(np.maximum(max_tan_angle, -1.0)))
 
-        # Average illumination fraction: percentage of azimuths where the horizon is below grazing sun (+1.5 deg)
-        solar_elevation_grazing = 1.5  # degrees
-        unobstructed = horizon_elevations < solar_elevation_grazing
+        # Average illumination fraction: percentage of azimuths where the horizon is below grazing sun
+        unobstructed = horizon_elevations < self.terrain_cfg.solar_elevation_grazing_deg
         illumination_fraction = np.mean(unobstructed.astype(float), axis=0)
 
         # Crater floor masking: deep depressions surrounded by high rims receive zero direct light
-        crater_mask = dem < -200.0
+        crater_mask = dem < self.terrain_cfg.crater_depression_threshold_m
         illumination_fraction[crater_mask] = np.clip(illumination_fraction[crater_mask] * 0.1, 0.0, 1.0)
-        illumination_fraction[dem < -350.0] = 0.0  # Deep floor is totally dark
+        illumination_fraction[dem < self.terrain_cfg.deep_floor_shadow_threshold_m] = 0.0  # Deep floor is totally dark
 
-        # Permanently Shadowed Region (PSR): Illumination fraction is strictly 0.0
-        psr_mask = illumination_fraction < 0.005
+        # Permanently Shadowed Region (PSR): Illumination fraction is strictly below cutoff
+        psr_mask = illumination_fraction < self.terrain_cfg.psr_illumination_cutoff
 
         # Sky-View Factor (SVF): Fraction of visible celestial hemisphere (0 to 1)
-        # SVF = 0.5 * (1 + cos(average_horizon_angle))
         mean_horizon_rad = np.radians(np.clip(np.mean(horizon_elevations, axis=0), 0.0, 89.0))
         sky_view_factor = np.clip(np.cos(mean_horizon_rad) ** 2, 0.0, 1.0)
 
-        # Doubly Shadowed Zones: Deepest interior floor where:
-        # 1. Zero direct sunlight (PSR)
-        # 2. Restricted sky-view factor (< 0.86, typical for crater floor)
-        # 3. Minimum secondary scattered infrared/visible flux from illuminated rim walls
-        doubly_shadowed = psr_mask & (sky_view_factor < 0.86) & (dem < -350.0)
+        # Doubly Shadowed Zones: Deepest interior floor
+        doubly_shadowed = psr_mask & (sky_view_factor < self.terrain_cfg.sky_view_factor_cutoff) & (dem < self.terrain_cfg.deep_floor_shadow_threshold_m)
 
         return {
             "illumination_fraction": illumination_fraction.astype(np.float32),
@@ -147,15 +147,18 @@ class TerrainIlluminationEngine:
     def compute_earth_visibility(
         self,
         dem: np.ndarray,
-        resolution_m: float = 20.0
+        resolution_m: float = None
     ) -> np.ndarray:
         """
         Computes Earth Line-of-Sight (LOS) visibility fraction over the lunar libration cycle.
         From the lunar south pole, Earth oscillates between 0 deg and ~7 deg above the northern horizon.
         """
+        if resolution_m is None:
+            resolution_m = self.terrain_cfg.grid_resolution_m
+
         ny, nx = dem.shape
         # Northern horizon ray casting (towards +Y direction, azimuth ~ 0 deg)
-        step_distances = np.array([100, 300, 700, 1500, 3000, 6000], dtype=float)
+        step_distances = np.array(self.terrain_cfg.earth_ray_distances_m, dtype=float)
         max_north_tan = np.full_like(dem, -999.0)
 
         for dist in step_distances:
@@ -166,12 +169,11 @@ class TerrainIlluminationEngine:
 
         north_horizon_deg = np.degrees(np.arctan(np.maximum(max_north_tan, -1.0)))
 
-        # Earth libration model: Earth elevation oscillates between 0 deg and 6.7 deg
-        # Pixel has line of sight when Earth elevation > north horizon elevation
-        earth_elevation_mean = 3.5  # Mean Earth elevation
-        earth_los = np.clip((earth_elevation_mean - north_horizon_deg) / 3.5, 0.0, 1.0)
+        # Earth libration model
+        earth_elevation_mean = self.terrain_cfg.earth_elevation_mean_deg
+        earth_los = np.clip((earth_elevation_mean - north_horizon_deg) / earth_elevation_mean, 0.0, 1.0)
         # Crater bowl floor has zero line of sight to Earth due to tall northern crater walls
-        earth_los[dem < -200.0] = 0.0
+        earth_los[dem < self.terrain_cfg.crater_depression_threshold_m] = 0.0
 
         return earth_los.astype(np.float32)
 
@@ -211,10 +213,10 @@ class TerrainIlluminationEngine:
             output_filename="map_phase3_slope.png",
             cmap="magma",
             vmin=0.0,
-            vmax=30.0,
+            vmax=self.terrain_cfg.max_regional_slope_plot,
             cbar_label="Slope (Degrees)",
             overlay_contour=slope,
-            contour_levels=[5.0, 15.0]  # Lander (<5 deg) and Rover limit (15 deg)
+            contour_levels=self.terrain_cfg.slope_contour_levels
         )
 
         # Cartographic Map 2: Solar Illumination Fraction & PSR Outlines
@@ -227,7 +229,7 @@ class TerrainIlluminationEngine:
             vmax=1.0,
             cbar_label="Annual Average Illumination Fraction",
             overlay_contour=dem,
-            contour_levels=[-1500, -1000, -500, 0, 500]
+            contour_levels=self.terrain_cfg.contour_levels
         )
 
         # Cartographic Map 3: Earth Line-of-Sight Visibility for Direct Communications
@@ -251,7 +253,8 @@ class TerrainIlluminationEngine:
         shadow_zones[doubly_shadowed > 0] = 2
 
         zone_cmap = ListedColormap(["#dcdcdc", "#3182bd", "#081d58"])  # Light gray, medium blue, dark navy
-        ax.imshow(shadow_zones, extent=[-10, 10, -10, 10], origin="upper", cmap=zone_cmap)
+        ext = self.terrain_cfg.extent_km
+        ax.imshow(shadow_zones, extent=[-ext, ext, -ext, ext], origin="upper", cmap=zone_cmap)
         ax.set_title("Permanently Shadowed Regions (PSR) & Doubly Shadowed Zones", fontsize=12, fontweight="bold")
         ax.set_xlabel("East-West Distance (km)")
         ax.set_ylabel("North-South Distance (km)")
@@ -273,13 +276,16 @@ class TerrainIlluminationEngine:
         pixel_area_km2 = (self.terrain_cfg.grid_resolution_m / 1000.0) ** 2
         total_area_km2 = dem.size * pixel_area_km2
 
+        max_land_slope = self.landing_cfg.max_landing_slope_deg
+        max_rov_slope = self.rover_cfg.max_nav_slope_deg
+
         summary_data = [
             {"Metric": "Total Analyzed Regional Area", "Value": f"{total_area_km2:.1f} km²"},
             {"Metric": "Permanently Shadowed Region (PSR) Area", "Value": f"{np.sum(psr > 0) * pixel_area_km2:.2f} km² ({100.0 * np.sum(psr > 0) / dem.size:.1f}%)"},
             {"Metric": "Doubly Shadowed Core Zone Area", "Value": f"{np.sum(doubly_shadowed > 0) * pixel_area_km2:.2f} km² ({100.0 * np.sum(doubly_shadowed > 0) / dem.size:.1f}%)"},
             {"Metric": "Mean Regional Slope", "Value": f"{np.mean(slope):.2f}° (Std: {np.std(slope):.2f}°)"},
-            {"Metric": "Safe Landing Terrain Area (Slope < 5°)", "Value": f"{np.sum(slope < 5.0) * pixel_area_km2:.2f} km² ({100.0 * np.sum(slope < 5.0) / dem.size:.1f}%)"},
-            {"Metric": "Traversable Rover Area (Slope < 12°)", "Value": f"{np.sum(slope < 12.0) * pixel_area_km2:.2f} km² ({100.0 * np.sum(slope < 12.0) / dem.size:.1f}%)"},
+            {"Metric": f"Safe Landing Terrain Area (Slope < {max_land_slope:.0f}°)", "Value": f"{np.sum(slope < max_land_slope) * pixel_area_km2:.2f} km² ({100.0 * np.sum(slope < max_land_slope) / dem.size:.1f}%)"},
+            {"Metric": f"Traversable Rover Area (Slope < {max_rov_slope:.0f}°)", "Value": f"{np.sum(slope < max_rov_slope) * pixel_area_km2:.2f} km² ({100.0 * np.sum(slope < max_rov_slope) / dem.size:.1f}%)"},
             {"Metric": "High Illumination Rim Area (Fraction > 0.6)", "Value": f"{np.sum(illum > 0.6) * pixel_area_km2:.2f} km² ({100.0 * np.sum(illum > 0.6) / dem.size:.1f}%)"},
             {"Metric": "Direct Earth Visibility Area (LOS > 0.5)", "Value": f"{np.sum(earth_los > 0.5) * pixel_area_km2:.2f} km² ({100.0 * np.sum(earth_los > 0.5) / dem.size:.1f}%)"}
         ]

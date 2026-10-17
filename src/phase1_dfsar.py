@@ -78,17 +78,17 @@ class DFSARProcessor:
         # 1. Circular Polarization Ratio (CPR)
         # CPR = (S1 - S4) / (S1 + S4) = P_SC / P_OC
         denom_cpr = np.maximum(s1 + s4, 1e-10)
-        cpr = np.clip((s1 - s4) / denom_cpr, 0.0, 5.0)
+        cpr = np.clip((s1 - s4) / denom_cpr, self.radar_cfg.cpr_min_clip, self.radar_cfg.cpr_max_clip)
 
         # 2. Degree of Polarization (DOP, m)
         # m = sqrt(S2^2 + S3^2 + S4^2) / S1
         pol_intensity = np.sqrt(s2 ** 2 + s3 ** 2 + s4 ** 2)
-        dop = np.clip(pol_intensity / s1, 0.0, 1.0)
+        dop = np.clip(pol_intensity / s1, self.radar_cfg.dop_min_clip, self.radar_cfg.dop_max_clip)
 
         # 3. Raney m-chi Decomposition
         # Ellipticity parameter: sin(2*chi) = -S4 / (m * S1)
         denom_chi = np.maximum(dop * s1, 1e-10)
-        sin_2chi = np.clip(-s4 / denom_chi, -1.0, 1.0)
+        sin_2chi = np.clip(-s4 / denom_chi, self.radar_cfg.sin_2chi_min_clip, self.radar_cfg.sin_2chi_max_clip)
 
         # Volume scattering: unpolarized backscatter
         p_volume = np.maximum(s1 * (1.0 - dop), 0.0)
@@ -130,8 +130,8 @@ class DFSARProcessor:
             title=f"Chandrayaan-2 DFSAR {band}-Band Circular Polarization Ratio (CPR)",
             output_filename=f"map_phase1_{band}_cpr.png",
             cmap="inferno",
-            vmin=0.2,
-            vmax=2.0,
+            vmin=self.radar_cfg.cpr_plot_vmin,
+            vmax=self.radar_cfg.cpr_plot_vmax,
             cbar_label="CPR (Same-Sense / Opposite-Sense)"
         )
         output_files["map_cpr"] = cpr_map_path
@@ -142,8 +142,8 @@ class DFSARProcessor:
             title=f"Chandrayaan-2 DFSAR {band}-Band Degree of Polarization (DoP)",
             output_filename=f"map_phase1_{band}_dop.png",
             cmap="plasma_r",
-            vmin=0.0,
-            vmax=1.0,
+            vmin=self.radar_cfg.dop_plot_vmin,
+            vmax=self.radar_cfg.dop_plot_vmax,
             cbar_label="Degree of Polarization (m)"
         )
         output_files["map_dop"] = dop_map_path
@@ -161,13 +161,13 @@ class DFSARProcessor:
 
         import matplotlib.pyplot as plt
         fig, ax = plt.subplots(figsize=(9, 8), dpi=300)
-        ax.imshow(rgb, extent=[-10, 10, -10, 10], origin="upper")
+        ext = self.terrain_cfg.extent_km
+        ax.imshow(rgb, extent=[-ext, ext, -ext, ext], origin="upper")
         ax.set_title(f"DFSAR {band}-Band m-chi Decomposition (R: Double, G: Volume, B: Surface)",
                      fontsize=12, fontweight="bold")
         ax.set_xlabel("East-West Distance (km)")
         ax.set_ylabel("North-South Distance (km)")
         ax.grid(color="gray", linestyle="--", alpha=0.3)
-        rgb_path = CFG.radar.filter_type
         rgb_out = MAPS_DIR / f"map_phase1_{band}_mchi_decomposition.png"
         fig.tight_layout()
         fig.savefig(rgb_out, bbox_inches="tight")
@@ -197,9 +197,9 @@ def run_phase1() -> pd.DataFrame:
             "Mean_CPR": float(np.mean(cpr)),
             "Std_CPR": float(np.std(cpr)),
             "Median_CPR": float(np.median(cpr)),
-            "Percent_CPR_gt_1": float(100.0 * np.sum(cpr > 1.0) / cpr.size),
+            "Percent_CPR_gt_1": float(100.0 * np.sum(cpr > processor.radar_cfg.cpr_ice_threshold) / cpr.size),
             "Mean_DOP": float(np.mean(dop)),
-            "Percent_DOP_lt_013": float(100.0 * np.sum(dop < 0.13) / dop.size),
+            "Percent_DOP_lt_013": float(100.0 * np.sum(dop < processor.radar_cfg.dop_ice_max) / dop.size),
             "Mean_Vol_Fraction": float(np.mean(pv / (pv + ps + pdb + 1e-6))),
             "Mean_Surface_Fraction": float(np.mean(ps / (pv + ps + pdb + 1e-6))),
             "Mean_Double_Fraction": float(np.mean(pdb / (pv + ps + pdb + 1e-6)))
