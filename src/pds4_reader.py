@@ -441,11 +441,11 @@ def geocode_stokes_to_crs(
     lats = sub_df[lat_col].values
     x_coords, y_coords = transformer.transform(lons, lats)
 
-    # Apply along-track time bias correction if available in label_meta
-    if label_meta and "geo_error_time_meters" in label_meta:
-        along_shift_m = label_meta["geo_error_time_meters"]
-        # Shift along-track coordinate
-        y_coords = y_coords + (along_shift_m * 0.05)
+    # Along-track timing error (-2.026 s / -3115.97 m) is unvalidated against ground truth.
+    # As required, we do NOT apply an ad-hoc coordinate shift. The tie points are left unshifted,
+    # and the full -3115.97 m is treated as along-track systematic uncertainty (sigma_along).
+    sigma_along = abs(label_meta.get("geo_error_time_meters", 3115.967)) if label_meta else 3115.967
+    sigma_range = label_meta.get("geo_error_range_meters", 31.759) if label_meta else 31.759
 
     # Determine bounding box grid in meters
     x_min, x_max = float(np.min(x_coords)), float(np.max(x_coords))
@@ -457,14 +457,16 @@ def geocode_stokes_to_crs(
 
     transform = from_origin(x_min, y_max, target_res_m, target_res_m)
 
-    # Compute pixel-wise geolocation uncertainty from local incidence angle
-    inc_angles = sub_df[inc_col].values if inc_col in sub_df.columns else np.full(len(sub_df), 28.0)
+    # For an uncorrected spherical geocode (datum R = 1737.4 km without LOLA DEM),
+    # the dominant geolocation error term is terrain relief x cot(incidence).
+    # Regional lunar south polar relief Delta_h spans +/- 1500 m to +/- 3000 m.
+    inc_angles = sub_df[inc_col].values if inc_col in sub_df.columns else np.full(len(sub_df), 25.994)
     rad_inc = np.radians(np.clip(inc_angles, 15.0, 75.0))
-    sigma_h = 1.0  # LOLA 1.0 m vertical precision
-    sigma_range = label_meta.get("geo_error_range_meters", 31.759) if label_meta else 31.759
-    sigma_along = 3.5  # Residual post-correction along-track jitter
+    delta_h_relief = 1500.0  # Conservative 1-sigma terrain elevation variance relative to sphere (m)
+    terrain_error_m = delta_h_relief / np.tan(rad_inc)  # Delta_h * cot(theta_inc)
 
-    tie_unc = np.sqrt((sigma_h / np.tan(rad_inc)) ** 2 + sigma_range ** 2 + sigma_along ** 2)
+    # Total geolocation uncertainty in quadrature
+    tie_unc = np.sqrt(terrain_error_m ** 2 + sigma_along ** 2 + sigma_range ** 2)
 
     # Interpolate uncertainty to grid
     tie_points = np.column_stack([x_coords, y_coords])
