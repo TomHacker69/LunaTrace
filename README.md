@@ -1,6 +1,6 @@
 # LunaTrace: Lunar Polar Subsurface Ice & Traverse Pipeline
 ### Chandrayaan-2 DFSAR Polarimetry, Topographic Horizon Modeling, Landing Site Selection, and Rover Traverse Planning
-**ISRO Hackathon Problem Statement 8**
+
 
 ---
 
