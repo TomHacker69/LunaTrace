@@ -410,11 +410,72 @@ def multilook_and_compute_stokes(
     }
 
 
+def derive_radar_look_vector_in_projected_crs(
+    geom_csv_path: Path,
+    target_crs: str
+) -> Dict[str, Any]:
+    """
+    Derives the ground look unit vector (u_x, u_y) and ground look azimuth in the target projected CRS
+    from geometry tie points, explicitly accounting for spacecraft heading, look side (LEFT),
+    and polar-stereographic grid meridian convergence.
+    """
+    if not geom_csv_path.exists():
+        raise FileNotFoundError(f"Geometry CSV not found: {geom_csv_path}")
+
+    df = pd.read_csv(geom_csv_path)
+    lat_col = [c for c in df.columns if "lat" in c.lower()][0]
+    lon_col = [c for c in df.columns if "lon" in c.lower()][0]
+
+    # Near range (column 0) and Far range (column 37)
+    near_pts = df.iloc[0::38]
+    far_pts = df.iloc[37::38]
+
+    source_crs = f"+proj=longlat +R={LUNAR_MEAN_RADIUS_M} +no_defs"
+    transformer = Transformer.from_crs(source_crs, target_crs, always_xy=True)
+
+    x_near, y_near = transformer.transform(near_pts[lon_col].values, near_pts[lat_col].values)
+    x_far, y_far = transformer.transform(far_pts[lon_col].values, far_pts[lat_col].values)
+
+    dx_look = x_far - x_near
+    dy_look = y_far - y_near
+
+    mean_dx = float(np.mean(dx_look))
+    mean_dy = float(np.mean(dy_look))
+    norm_look = np.hypot(mean_dx, mean_dy)
+    u_x = mean_dx / norm_look
+    u_y = mean_dy / norm_look
+    grid_look_angle_deg = float(np.degrees(np.arctan2(u_y, u_x)))
+
+    # Spacecraft along-track vector
+    dx_track = x_near[1:] - x_near[:-1]
+    dy_track = y_near[1:] - y_near[:-1]
+    mean_track_dx = float(np.mean(dx_track))
+    mean_track_dy = float(np.mean(dy_track))
+    norm_track = np.hypot(mean_track_dx, mean_track_dy)
+    u_track_x = mean_track_dx / norm_track
+    u_track_y = mean_track_dy / norm_track
+    grid_track_angle_deg = float(np.degrees(np.arctan2(u_track_y, u_track_x)))
+
+    # Meridian convergence gamma = lon - lon_0 (for EPSG:3032 lon_0 = 0)
+    mean_lon = float(np.mean(near_pts[lon_col]))
+    convergence_angle_deg = mean_lon
+
+    return {
+        "unit_look_vector": (u_x, u_y),
+        "grid_look_angle_deg": grid_look_angle_deg,
+        "unit_track_vector": (u_track_x, u_track_y),
+        "grid_track_angle_deg": grid_track_angle_deg,
+        "meridian_convergence_deg": convergence_angle_deg,
+        "orthogonal_angle_deg": float((grid_look_angle_deg - grid_track_angle_deg) % 360.0)
+    }
+
+
 def compute_dem_radar_shadow_and_layover_masks(
     dem: np.ndarray,
     pixel_spacing_m: float,
     incidence_angle_deg: float,
-    look_direction: str = "LEFT"
+    look_direction: str = "LEFT",
+    look_vector_proj: Optional[Tuple[float, float]] = None
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Computes radar shadow and layover binary masks from DEM geometry and incidence angle.
@@ -422,34 +483,45 @@ def compute_dem_radar_shadow_and_layover_masks(
                Woodhouse (2006) Introduction to Microwave Remote Sensing, Sec 11.2.
 
     SAR Geometry Definitions:
-    - Look vector: points along ground range away from the nadir ground track towards the swath.
-      For descending polar orbit (southward flight along columns), look_direction 'LEFT' points East (+X, increasing column index).
-      look_direction 'RIGHT' points West (-X, decreasing column index).
-    - Slope in range direction:
-        dz_dr = d(elevation) / d(ground_range)
+    - Look unit vector u = (u_x, u_y) points along ground range away from nadir ground track.
+      Derived per-scene from geometry tie points and sensor parameters, or specified for synthetic tests.
+    - Directional slope in range look direction:
+        dz_dr = (dz/dx) * u_x + (dz/dy) * u_y
       dz_dr > 0: terrain rises as we move away from radar (foreslope facing the radar).
       dz_dr < 0: terrain falls as we move away from radar (backslope facing away from radar).
 
     Layover Condition:
-    - When the terrain slope facing the radar exceeds the radar incidence angle theta_inc:
-        alpha_facing = arctan(dz_dr) > theta_inc  <=>  dz_dr > tan(theta_inc)
-      The top of the slope has a smaller slant range than its base, causing range inversion.
+    - When terrain slope facing radar exceeds radar incidence angle theta_inc:
+        dz_dr > tan(theta_inc)
 
     Shadow Condition:
-    - Local backslope shadow: When the backslope away from the radar exceeds (90 deg - theta_inc):
-        alpha_back = arctan(-dz_dr) > (90 deg - theta_inc)  <=>  -dz_dr > cot(theta_inc)
-    - Cast shadow: When preceding high topography blocks the radar line of sight along the range sweep.
+    - Local backslope shadow: When backslope away from radar exceeds (90 deg - theta_inc):
+        -dz_dr > cot(theta_inc)
+    - Cast shadow: When preceding high topography blocks radar line of sight along the range sweep.
     """
     inc_rad = np.radians(incidence_angle_deg)
     tan_inc = np.tan(inc_rad)
     cot_inc = 1.0 / np.tan(inc_rad)
 
-    # Compute elevation gradient along columns (X / range direction)
-    _, dx = np.gradient(dem, pixel_spacing_m)
+    # Determine 2D unit look vector
+    if look_vector_proj is not None:
+        ux, uy = look_vector_proj
+        norm = np.hypot(ux, uy)
+        ux, uy = ux / norm, uy / norm
+    else:
+        # Default for 1D / column synthetic tests
+        if look_direction.upper() == "LEFT":
+            ux, uy = 1.0, 0.0
+        else:
+            ux, uy = -1.0, 0.0
 
-    # Direction of increasing ground range (away from nadir track)
-    is_left = look_direction.upper() == "LEFT"
-    dz_dr = dx if is_left else -dx
+    # Gradient of DEM: dy along rows, dx along columns
+    # In image arrays, row index increases downward (+Y in image = -Y in map coordinates if North-up)
+    # For synthetic tests or column-aligned data, dx is along columns.
+    grad_y, grad_x = np.gradient(dem, pixel_spacing_m)
+
+    # Directional derivative along range look direction
+    dz_dr = grad_x * ux + grad_y * uy
 
     # 1. Layover mask: slope facing the radar exceeds incidence angle
     layover_mask = dz_dr > tan_inc
@@ -460,15 +532,27 @@ def compute_dem_radar_shadow_and_layover_masks(
     # 3. Cast shadow along the range direction (ray-tracing line of sight)
     cast_shadow = np.zeros_like(dem, dtype=bool)
     nrows, ncols = dem.shape
-    col_list = list(range(ncols)) if is_left else list(range(ncols - 1, -1, -1))
-    delta_drop = cot_inc * pixel_spacing_m
 
-    los_elev = np.full(nrows, -1e9, dtype=np.float64)
-    for c in col_list:
-        curr_elev = dem[:, c].astype(np.float64)
-        shadowed = curr_elev < los_elev
-        cast_shadow[:, c] = shadowed
-        los_elev = np.maximum(curr_elev, los_elev - delta_drop)
+    # If predominantly along columns (e.g. synthetic ramp or X-aligned)
+    if abs(uy) < 1e-4 or abs(ux) >= abs(uy):
+        col_list = list(range(ncols)) if ux >= 0 else list(range(ncols - 1, -1, -1))
+        delta_drop = cot_inc * pixel_spacing_m * (1.0 / max(abs(ux), 1e-4))
+        los_elev = np.full(nrows, -1e9, dtype=np.float64)
+        for c in col_list:
+            curr_elev = dem[:, c].astype(np.float64)
+            shadowed = curr_elev < los_elev
+            cast_shadow[:, c] = shadowed
+            los_elev = np.maximum(curr_elev, los_elev - delta_drop)
+    else:
+        # Predominantly along rows
+        row_list = list(range(nrows)) if uy >= 0 else list(range(nrows - 1, -1, -1))
+        delta_drop = cot_inc * pixel_spacing_m * (1.0 / max(abs(uy), 1e-4))
+        los_elev = np.full(ncols, -1e9, dtype=np.float64)
+        for r in row_list:
+            curr_elev = dem[r, :].astype(np.float64)
+            shadowed = curr_elev < los_elev
+            cast_shadow[r, :] = shadowed
+            los_elev = np.maximum(curr_elev, los_elev - delta_drop)
 
     shadow_mask = backslope_shadow | cast_shadow
     return shadow_mask.astype(np.uint8), layover_mask.astype(np.uint8)
@@ -478,19 +562,61 @@ def simulate_radar_intensity_from_dem(
     dem: np.ndarray,
     pixel_spacing_m: float,
     incidence_angle_deg: float,
-    look_direction: str = "LEFT"
+    look_direction: str = "LEFT",
+    look_vector_proj: Optional[Tuple[float, float]] = None
 ) -> np.ndarray:
     """
     Simulates radar backscatter intensity from a registered DEM using local surface normal and incidence angle.
     Cosine / Muhleman scattering law: I_sim ~ cos(theta_local).
     """
-    dy, dx = np.gradient(dem, pixel_spacing_m)
-    norm = np.sqrt(dx**2 + dy**2 + 1.0)
+    if look_vector_proj is not None:
+        ux, uy = look_vector_proj
+        norm = np.hypot(ux, uy)
+        ux, uy = ux / norm, uy / norm
+    else:
+        ux = 1.0 if look_direction.upper() == "LEFT" else -1.0
+        uy = 0.0
+
+    grad_y, grad_x = np.gradient(dem, pixel_spacing_m)
+    norm_surface = np.sqrt(grad_x**2 + grad_y**2 + 1.0)
+
     inc_rad = np.radians(incidence_angle_deg)
-    s_x = np.sin(inc_rad) if look_direction.upper() == "LEFT" else -np.sin(inc_rad)
-    s_z = -np.cos(inc_rad)
-    cos_theta_local = np.clip((-dx * s_x + 1.0 * s_z) / norm, 0.0, 1.0)
+    # Radar incident vector pointing from surface to sensor
+    s_x = np.sin(inc_rad) * ux
+    s_y = np.sin(inc_rad) * uy
+    s_z = np.cos(inc_rad)
+
+    # Local surface normal points outward: (-grad_x, -grad_y, 1.0) / norm_surface
+    cos_theta_local = np.clip((-grad_x * s_x - grad_y * s_y + 1.0 * s_z) / norm_surface, 0.0, 1.0)
     return cos_theta_local.astype(np.float32)
+
+
+def derive_search_window_radius_m(
+    timing_offset_s: float,
+    dem: Optional[np.ndarray],
+    incidence_angle_deg: float,
+    orbital_velocity_m_s: float = 1538.0
+) -> float:
+    """
+    Derives the cross-correlation search window radius at runtime from the uncertainty budget:
+    1. Spacecraft along-track timing offset: Delta x_along = |v_orb * Delta t|
+    2. Terrain relief ground-range displacement: Delta r_cross = h_relief * cot(theta_inc)
+    Total search window radius = Delta x_along + Delta r_cross (must be >= 4.4 km).
+    """
+    along_track_err_m = abs(timing_offset_s) * orbital_velocity_m_s
+
+    if dem is not None:
+        valid_dem = dem[~np.isnan(dem)]
+        relief_m = float(np.max(valid_dem) - np.min(valid_dem)) if len(valid_dem) > 0 else 1000.0
+    else:
+        relief_m = 1000.0
+
+    inc_rad = np.radians(incidence_angle_deg)
+    cot_inc = 1.0 / np.tan(inc_rad)
+    cross_track_err_m = relief_m * cot_inc
+
+    search_radius_m = float(along_track_err_m + cross_track_err_m)
+    return max(4400.0, search_radius_m)
 
 
 def cross_correlate_dem_with_sar(
@@ -498,14 +624,24 @@ def cross_correlate_dem_with_sar(
     sar_s1: np.ndarray,
     pixel_spacing_m: float = 20.0,
     min_correlation_rho: float = 0.4,
-    search_window_radius_m: float = 5000.0
+    search_window_radius_m: Optional[float] = None,
+    timing_offset_s: float = -2.026,
+    incidence_angle_deg: float = 25.1
 ) -> Dict[str, Any]:
     """
     Cross-correlates a DEM-simulated radar backscatter image with the real SAR S1 image
     to estimate the empirical 2D spatial offset (offset_azimuth_m, offset_range_m).
-    Search window radius (default +/- 5000 m) is derived from the uncertainty budget (>= +/- 4.4 km).
+    Search window radius is derived at runtime from timing error plus DEM-derived relief * cot(inc).
     """
     from scipy.signal import correlate2d
+
+    if search_window_radius_m is None:
+        search_window_radius_m = derive_search_window_radius_m(
+            timing_offset_s=timing_offset_s,
+            dem=dem_sim,
+            incidence_angle_deg=incidence_angle_deg
+        )
+
     ny = min(dem_sim.shape[0], sar_s1.shape[0])
     nx = min(dem_sim.shape[1], sar_s1.shape[1])
     d_sub = np.nan_to_num(dem_sim[:ny, :nx] - np.nanmean(dem_sim[:ny, :nx]))
@@ -529,7 +665,7 @@ def cross_correlate_dem_with_sar(
         "offset_range_m": float(offset_x_m),
         "max_correlation": max_rho,
         "min_correlation_threshold": min_correlation_rho,
-        "search_window_radius_m": search_window_radius_m,
+        "search_window_radius_m": float(search_window_radius_m),
         "within_search_window": within_search_window,
         "correlation_accepted": accepted
     }
@@ -537,8 +673,8 @@ def cross_correlate_dem_with_sar(
 
 def parse_lola_pds3_label(lbl_path: Path) -> Dict[str, Any]:
     """
-    Parses a PDS3 label for LOLA DEM products manually.
-    Extracts binary data specifications, map projection, and scaling factors without relying on GDAL.
+    Parses a PDS3 label for LOLA DEM products manually without GDAL.
+    Extracts product type, units, binary data specifications, and scaling factors.
     """
     if not lbl_path.exists():
         raise FileNotFoundError(f"LOLA PDS3 label not found: {lbl_path}")
@@ -552,6 +688,8 @@ def parse_lola_pds3_label(lbl_path: Path) -> Dict[str, Any]:
                 k = k.strip().upper()
                 v = v.strip().strip('"').strip("'")
                 if "<" in v:
+                    unit_in_brackets = v.split("<", 1)[1].split(">", 1)[0].strip()
+                    params[f"{k}_UNIT"] = unit_in_brackets
                     v = v.split("<", 1)[0].strip()
                 params[k] = v
 
@@ -562,6 +700,8 @@ def parse_lola_pds3_label(lbl_path: Path) -> Dict[str, Any]:
     scaling_factor = float(params.get("SCALING_FACTOR", 0.5))
     offset = float(params.get("OFFSET", 0.0))
     missing_constant = float(params.get("MISSING_CONSTANT", -32768))
+    unit = params.get("UNIT", params.get("SCALING_FACTOR_UNIT", "METER")).upper()
+    product_type = params.get("PRODUCT_TYPE", "RDR").upper()
 
     return {
         "lines": lines,
@@ -571,6 +711,8 @@ def parse_lola_pds3_label(lbl_path: Path) -> Dict[str, Any]:
         "scaling_factor": scaling_factor,
         "offset": offset,
         "missing_constant": missing_constant,
+        "unit": unit,
+        "product_type": product_type,
         "image_file": params.get("^IMAGE", ""),
         "raw_params": params
     }
@@ -582,8 +724,13 @@ def read_lola_pds3_dem(
 ) -> Tuple[np.ndarray, Dict[str, Any]]:
     """
     Manually reads a LOLA DEM from PDS3 .lbl and binary .IMG without GDAL.
-    Verifies height = DN * SCALING_FACTOR + OFFSET against the label and asserts
-    that lunar elevations fall strictly within the physically plausible range [-12000 m, +12000 m].
+    Verifies height formulation against the real label:
+    - If OFFSET is defined as the reference radius (>= 1e5 m or ~1737400 m), height = DN * SCALING_FACTOR
+      (OFFSET is NOT added to surface height).
+    - If OFFSET is an elevation datum shift (< 1e5 m), height = DN * SCALING_FACTOR + OFFSET.
+    - If UNIT is 'KILOMETER', values are scaled to meters.
+    Asserts that lunar surface elevations fall strictly within the physically plausible
+    range [-12000 m, +12000 m] for topographic elevation products.
     """
     lbl_meta = parse_lola_pds3_label(lbl_path)
     if img_path is None:
@@ -628,18 +775,36 @@ def read_lola_pds3_dem(
     missing_val = lbl_meta["missing_constant"]
     valid_mask = raw_dn != missing_val
 
+    unit_str = lbl_meta["unit"]
+    unit_scale = 1000.0 if ("KILOMETER" in unit_str or "KM" in unit_str) else 1.0
+
     scaling = lbl_meta["scaling_factor"]
     offset = lbl_meta["offset"]
-    elevation_m = np.where(valid_mask, raw_dn.astype(np.float32) * scaling + offset, np.nan)
+
+    # Check if OFFSET represents the lunar reference radius (e.g. 1737400 m or 1737.4 km)
+    # In PDS3 LOLA elevation products, elevation = DN * SCALING_FACTOR; adding OFFSET would produce
+    # planetary radius (~1.74e6 m), distorting all radar geometry.
+    is_reference_radius = abs(offset * unit_scale) >= 100000.0
+
+    if is_reference_radius:
+        elevation_m = np.where(valid_mask, raw_dn.astype(np.float32) * (scaling * unit_scale), np.nan)
+    else:
+        elevation_m = np.where(valid_mask, (raw_dn.astype(np.float32) * scaling + offset) * unit_scale, np.nan)
 
     valid_elev = elevation_m[valid_mask]
     if len(valid_elev) > 0:
         min_elev = float(np.min(valid_elev))
         max_elev = float(np.max(valid_elev))
+        # Lunar topography extremes:
+        # Deepest: Antoniadi crater floor / SPA basin (~ -9.1 km)
+        # Highest: Dirichlet-Jackson crater rim (~ +10.8 km)
         if min_elev < -12000.0 or max_elev > 12000.0:
             raise ValueError(
                 f"LOLA DEM elevation out of plausible lunar range [-12000 m, +12000 m]: "
-                f"min = {min_elev:.1f} m, max = {max_elev:.1f} m. Verify label SCALING_FACTOR and OFFSET."
+                f"min = {min_elev:.1f} m, max = {max_elev:.1f} m. "
+                f"Product Type = '{lbl_meta['product_type']}', Unit = '{unit_str}', "
+                f"Scaling = {scaling}, Offset = {offset}. "
+                "Verify that reference radius OFFSET was not added to surface elevation."
             )
 
     return elevation_m, lbl_meta
@@ -653,8 +818,8 @@ def check_coordinate_in_footprint(
 ) -> Dict[str, Any]:
     """
     Computes whether the product footprint contains a given candidate coordinate.
-    Uses exact sub-meter tie-point boundary polygon if geom_csv_path is provided,
-    otherwise uses the 4 XML label corner coordinates in Polar Stereographic projection.
+    Builds the footprint polygon from the outer boundary tie points of the 38 x 8,289 grid
+    (16,650 outer boundary points) in Polar Stereographic projected coordinates (EPSG:3032).
     """
     source_crs = f"+proj=longlat +R={LUNAR_MEAN_RADIUS_M} +no_defs"
     target_crs = f"+proj=stere +lat_0=-90 +lon_0=0 +k=1 +x_0=0 +y_0=0 +R={LUNAR_MEAN_RADIUS_M} +units=m +no_defs"
@@ -664,9 +829,15 @@ def check_coordinate_in_footprint(
         df = pd.read_csv(geom_csv_path)
         lat_col = [c for c in df.columns if "lat" in c.lower()][0]
         lon_col = [c for c in df.columns if "lon" in c.lower()][0]
-        left_edge = df.iloc[0::38]
-        right_edge = df.iloc[37::38].iloc[::-1]
-        boundary = pd.concat([left_edge, right_edge])
+        n_lines = len(df) // 38
+
+        # 4 outer edges of the 38 x 8,289 grid in closed clockwise order:
+        top_edge = df.iloc[0:38]  # line 0, cols 0..37 (38 points)
+        right_edge = df.iloc[37::38]  # lines 0..n-1, col 37 (8,289 points)
+        bottom_edge = df.iloc[(n_lines - 1) * 38 : n_lines * 38].iloc[::-1]  # line n-1, cols 37..0 (38 points)
+        left_edge = df.iloc[0::38].iloc[::-1]  # lines n-1..0, col 0 (8,289 points)
+
+        boundary = pd.concat([top_edge, right_edge, bottom_edge, left_edge]).drop_duplicates()
         poly_lons = boundary[lon_col].values
         poly_lats = boundary[lat_col].values
     else:
@@ -699,8 +870,9 @@ def check_coordinate_in_footprint(
         "candidate_longitude": float(coord_lon),
         "is_inside_footprint": is_inside,
         "distance_to_boundary_m": min_dist_m,
-        "boundary_point_count": len(bx)
+        "outer_boundary_points_count": len(bx)
     }
+
 
 
 def geocode_stokes_to_crs(

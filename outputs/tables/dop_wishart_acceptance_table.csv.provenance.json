@@ -1,0 +1,28 @@
+{
+  "output_file": "dop_wishart_acceptance_table.csv",
+  "output_sha256": "f1b31b97eaaca05abdc1bc4df8b6fd7855c21f9104d396554d22398d78176c5d",
+  "timestamp_utc": "2026-10-18T23:28:04.933696+00:00",
+  "git_commit": "5882ef0e37f3ff78a6094a66e56528fef7754c79",
+  "software_versions": {
+    "python": "3.14.7",
+    "numpy": "2.5.3",
+    "rasterio": "1.5.2",
+    "scipy": "1.18.1",
+    "pandas": "3.0.6",
+    "pydantic": "2.13.4"
+  },
+  "input_files": {
+    "pds4_reader.py": "221160d3806ca88b22a2234f4ee81f35f587d7185abc651cd01f09fea548135a",
+    "config.yaml": "85a1379cfef66c155aaa9eadba15f9c0b196c578ee9afcfde1bd71d666ddde8a"
+  },
+  "config_snapshot": {},
+  "metadata": {
+    "description": "Wishart 2x2 complex null Degree of Polarization (DoP) acceptance and miss rate table",
+    "formula": "F(m) = betainc(1.5, N-1, m^2)",
+    "key_values": {
+      "N=16_acceptance_pct": 8.55,
+      "N=136_acceptance_pct": 79.74,
+      "N_for_90pct_looks": 184.14
+    }
+  }
+}

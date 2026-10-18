@@ -1,0 +1,12 @@
+Processing Level,Effective Looks (N),Wishart Null Acceptance (m<=0.13) [%],Miss Rate (False Rejection under H0) [%],Acceptance (m<=0.05) [%],Acceptance (m<=0.10) [%],Acceptance (m<=0.20) [%],Acceptance (m<=0.32) [%]
+Native Cell (Measured Patch ENL),3.04,0.56,99.44,0.032,0.26,2.0,7.88
+Native Cell (Autocorrelation Bound),4.21,1.03,98.97,0.06,0.47,3.65,13.72
+Nominal Multilooked Grid (8 az x 2 rg),16.0,8.55,91.45,0.548,4.12,25.77,65.15
+3x3 Window (Conservative ENL),27.4,17.66,82.34,1.245,8.9,46.32,87.6
+3x3 Window (Autocorrelation ENL),37.9,26.29,73.71,2.018,13.78,61.34,95.45
+Former Claimed 3x3 Window,68.4,48.86,51.14,4.74,28.5,86.27,99.78
+5x5 Window (Conservative ENL),76.0,53.64,46.36,5.499,32.06,89.52,99.9
+High-Look Level (Nominal),136.0,79.74,20.26,12.142,56.29,98.85,100.0
+Threshold for 90% Acceptance at m<=0.13,184.14,90.0,10.0,17.894,70.26,99.82,100.0
+7x7 Window (Autocorrelation ENL),206.2,92.82,7.18,20.565,75.22,99.92,100.0
+9x9 Window (Conservative ENL),246.3,96.11,3.89,25.401,82.34,99.98,100.0

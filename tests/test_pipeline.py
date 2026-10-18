@@ -42,7 +42,7 @@ from tests.fixtures.synthetic_crater_generator import generate_synthetic_pds4_sl
 # ==============================================================================
 
 def test_config_validation_and_derived_limits():
-    """Validates schema bounds and dynamically derived limits in config."""
+    """[SCHEMA/UNIT] Validates schema bounds and dynamically derived limits in config."""
     cfg = load_config()
 
     # Rule 4: Traversable slope must be strictly derived from chassis rollover limit / safety factor
@@ -57,7 +57,7 @@ def test_config_validation_and_derived_limits():
 
 
 def test_missing_data_fails_loudly(tmp_path: Path):
-    """Rule 1: If an input file is missing, the validator must fail loudly with DataValidationError."""
+    """[SCHEMA/UNIT] Rule 1: If an input file is missing, the validator must fail loudly with DataValidationError."""
     cfg = load_config()
     empty_dir = tmp_path / "empty_raw"
     empty_dir.mkdir()
@@ -67,7 +67,7 @@ def test_missing_data_fails_loudly(tmp_path: Path):
 
 
 def test_speckle_filter_intensity_and_signed():
-    """Tests Enhanced Lee filter for non-negative intensity (S1) and signed channels (S2, S3, S4)."""
+    """[SYNTHETIC FIXTURE] Tests Enhanced Lee filter on synthetic Gaussian noise for non-negative intensity (S1) and signed channels (S2, S3, S4)."""
     img_pos = np.ones((20, 20), dtype=float) * 5.0
     filtered_pos = enhanced_lee_filter(img_pos, window_size=5, num_looks=4, is_intensity=True)
     assert filtered_pos.shape == (20, 20)
@@ -84,9 +84,8 @@ def test_speckle_filter_intensity_and_signed():
 
 def test_phase0_rejects_amplitude_only_input(tmp_path: Path):
     """
-    Requirement 1 & 6: GRI LH/LV files are amplitude-only.
-    Stokes S3 and S4 cannot be computed from them.
-    Phase 0 must fail fast with ValueError if amplitude-only (1-band) input is provided.
+    [SYNTHETIC FIXTURE] Requirement 1 & 6: Tests that 1-band amplitude GeoTIFFs fail fast with ValueError.
+    Stokes S3 and S4 cannot be computed from intensity.
     """
     fixture = generate_synthetic_pds4_slc_fixture(tmp_path)
     amp_file = fixture["amplitude_only"]
@@ -97,8 +96,8 @@ def test_phase0_rejects_amplitude_only_input(tmp_path: Path):
 
 def test_phase0_rejects_missing_calibration_fields(tmp_path: Path):
     """
-    Requirement 2 & 6: PDS4 XML label parser must fail fast if any mandatory
-    calibration or metadata field is absent.
+    [SYNTHETIC FIXTURE] Requirement 2 & 6: Tests that synthetic PDS4 XML label missing mandatory
+    calibration or metadata fields fails fast with ValueError.
     """
     fixture = generate_synthetic_pds4_slc_fixture(tmp_path)
     corrupt_xml = fixture["corrupt_xml"]
@@ -109,7 +108,7 @@ def test_phase0_rejects_missing_calibration_fields(tmp_path: Path):
 
 def test_phase0_missing_bbox_fails_fast(test_config: LunaTraceConfig):
     """
-    Requirement 2: If the crater bounding box is missing from config, Phase 0 must raise an error.
+    [SCHEMA/UNIT] Requirement 2: If the crater bounding box is missing from config, Phase 0 must raise an error.
     """
     cfg_copy = test_config.model_copy(deep=True)
     cfg_copy.target_bounding_box = None
@@ -120,7 +119,7 @@ def test_phase0_missing_bbox_fails_fast(test_config: LunaTraceConfig):
 
 def test_phase0_footprint_bounding_box_overlap(tmp_path: Path):
     """
-    Requirement 2: Verifies that product footprint actually overlaps the bounding box,
+    [SYNTHETIC FIXTURE] Requirement 2: Verifies that product footprint actually overlaps the bounding box,
     and fails fast with ValueError if there is no spatial intersection.
     """
     fixture = generate_synthetic_pds4_slc_fixture(tmp_path)
@@ -140,7 +139,7 @@ def test_phase0_footprint_bounding_box_overlap(tmp_path: Path):
 
 def test_phase0_stokes_invariants_and_radiometric_calibration(tmp_path: Path):
     """
-    Requirement 6: Stokes invariants (S1 >= 0, DOP in [0, 1], CPR >= 0)
+    [SYNTHETIC FIXTURE] Requirement 6: Tests Stokes invariants (S1 >= 0, DOP in [0, 1], CPR >= 0)
     on a labelled synthetic complex SLC fixture.
     """
     fixture = generate_synthetic_pds4_slc_fixture(tmp_path)
@@ -180,7 +179,7 @@ def test_phase0_stokes_invariants_and_radiometric_calibration(tmp_path: Path):
 
 def test_dop_wishart_null_distribution_monte_carlo():
     """
-    Validates that the 2x2 complex Wishart null distribution for sample Degree of Polarization
+    [SYNTHETIC SIMULATION] Validates that the 2x2 complex Wishart null distribution for sample Degree of Polarization
     m follows p(m) proportional to m^2 (1 - m^2)^(N-2) with CDF F(m) = I_{m^2}(1.5, N-1),
     and disproves the 2D coherence formula 1 - (1 - m^2)^(N-1).
     Runs with fixed seed and 100,000 trials per look count.
@@ -218,7 +217,7 @@ def test_dop_wishart_null_distribution_monte_carlo():
 
 def test_sar_layover_and_shadow_geometry():
     """
-    Validates SAR layover and shadow masks on a synthetic ramp DEM:
+    [SYNTHETIC FIXTURE] Validates SAR layover and shadow masks on a synthetic ramp DEM:
     - Layover condition: foreslope facing radar > incidence angle
     - Shadow condition: backslope away from radar > (90 deg - incidence angle)
     - Evaluates both left-looking and right-looking geometries.
@@ -271,9 +270,10 @@ def test_sar_layover_and_shadow_geometry():
 
 def test_lola_pds3_dem_manual_reader(tmp_path: Path):
     """
-    Validates manual PDS3 reader for LOLA DEM:
+    [SYNTHETIC FIXTURE] Validates manual PDS3 reader for LOLA DEM:
     - Parses .LBL parameters without GDAL
-    - Computes height = DN * SCALING_FACTOR + OFFSET
+    - Correctly handles OFFSET = 0.0 (direct elevation in meters)
+    - Correctly handles OFFSET = 1737400.0 (reference radius: does NOT add 1.737e6 m to height)
     - Correctly handles MISSING_CONSTANT
     - Rejects elevations outside plausible lunar range [-12000 m, +12000 m].
     """
@@ -287,10 +287,12 @@ def test_lola_pds3_dem_manual_reader(tmp_path: Path):
 
     raw_dn.astype(">i2").tofile(img_file)
 
+    # 1. Standard Topography label (OFFSET = 0.0)
     lbl_content = f"""PDS_VERSION_ID = PDS3
 RECORD_TYPE = FIXED_LENGTH
 RECORD_BYTES = {samples * 2}
 FILE_RECORDS = {lines}
+PRODUCT_TYPE = "TOPOGRAPHY"
 ^IMAGE = "{img_file.name}"
 OBJECT = IMAGE
   LINES = {lines}
@@ -311,7 +313,33 @@ END
     assert np.isnan(elev_parsed[0, 0]), "Missing pixel must be masked as NaN"
     np.testing.assert_allclose(elev_parsed[1:, 1:], elev_true[1:, 1:], atol=0.5)
 
-    # Test rejection of unphysical elevations (< -12000 m or > +12000 m)
+    # 2. Reference Radius label (OFFSET = 1737400.0 meters)
+    # The reader must NOT add 1737400.0 to elevation; elevations must remain in [-2000, 1000] m
+    lbl_ref_radius = f"""PDS_VERSION_ID = PDS3
+RECORD_TYPE = FIXED_LENGTH
+RECORD_BYTES = {samples * 2}
+FILE_RECORDS = {lines}
+PRODUCT_TYPE = "RDR"
+^IMAGE = "{img_file.name}"
+OBJECT = IMAGE
+  LINES = {lines}
+  LINE_SAMPLES = {samples}
+  SAMPLE_BITS = 16
+  SAMPLE_TYPE = MSB_INTEGER
+  SCALING_FACTOR = 0.5 <METER>
+  OFFSET = 1737400.0 <METER>
+  MISSING_CONSTANT = -32768
+END_OBJECT = IMAGE
+END
+"""
+    lbl_file.write_text(lbl_ref_radius, encoding="ascii")
+    elev_ref, meta_ref = read_lola_pds3_dem(lbl_file)
+    assert meta_ref["offset"] == 1737400.0
+    # Must match true elevation without being shifted by 1.737 million meters
+    np.testing.assert_allclose(elev_ref[1:, 1:], elev_true[1:, 1:], atol=0.5)
+
+    # 3. Test rejection of unphysical elevations (< -12000 m or > +12000 m)
+    lbl_file.write_text(lbl_content, encoding="ascii")
     corrupt_dn = np.full((lines, samples), 30000, dtype=">i2")
     corrupt_dn.tofile(img_file)
     with pytest.raises(ValueError, match="out of plausible lunar range"):
@@ -320,7 +348,8 @@ END
 
 def test_coordinate_footprint_containment():
     """
-    Validates point-in-polygon containment computation for candidate coordinates against the swath footprint.
+    [REAL DATA] Validates point-in-polygon containment computation for candidate coordinates
+    against the 16,650 outer boundary tie points of the 38 x 8,289 grid.
     """
     label_meta = {
         "footprint": {
@@ -338,10 +367,12 @@ def test_coordinate_footprint_containment():
 
     res_center = check_coordinate_in_footprint(-86.510862, 83.925179, label_meta, geom_csv_path=geom_csv_path)
     assert res_center["is_inside_footprint"] is True
+    assert res_center["outer_boundary_points_count"] == 16650
 
     res_outside = check_coordinate_in_footprint(0.0, 0.0, label_meta, geom_csv_path=geom_csv_path)
     assert res_outside["is_inside_footprint"] is False
     assert res_outside["distance_to_boundary_m"] > 100000.0
+
 
 
 
@@ -350,7 +381,7 @@ def test_coordinate_footprint_containment():
 # ==============================================================================
 
 def test_phase1_polarimetry_energy_conservation(test_config: LunaTraceConfig):
-    """Validates polarimetric Stokes formulas and energy conservation: Pv + Pdb + Ps == S1."""
+    """[SYNTHETIC FIXTURE] Validates polarimetric Stokes formulas and energy conservation: Pv + Pdb + Ps == S1."""
     processor = DFSARProcessor(config=test_config)
     s1 = np.array([[2.0, 3.0]])
     s2 = np.array([[0.2, 0.4]])
@@ -374,7 +405,7 @@ def test_phase1_polarimetry_energy_conservation(test_config: LunaTraceConfig):
 
 def test_phase2_ice_discrimination_and_s_band_handling(test_config: LunaTraceConfig, processed_pipeline):
     """
-    Validates Phase 2 ice detection scoring, de-circularized FPR metrics,
+    [SYNTHETIC FIXTURE] Validates Phase 2 ice detection scoring, de-circularized FPR metrics,
     unassessed OHRC status, and graceful S-band handling (Requirement 4).
     """
     engine = IceDetectionEngine(config=test_config)
@@ -394,7 +425,7 @@ def test_phase2_ice_discrimination_and_s_band_handling(test_config: LunaTraceCon
 
 
 def test_phase3_terrain_morphometry_and_illumination(test_config: LunaTraceConfig, processed_pipeline):
-    """Validates Phase 3 ephemeris horizon ray-tracing and slope calculations."""
+    """[SYNTHETIC FIXTURE] Validates Phase 3 ephemeris horizon ray-tracing and slope calculations."""
     engine = TerrainIlluminationEngine(config=test_config)
     dem, tf, crs, _ = engine.load_dem()
 
@@ -410,7 +441,7 @@ def test_phase3_terrain_morphometry_and_illumination(test_config: LunaTraceConfi
 
 
 def test_phase4_landing_site_selection(test_config: LunaTraceConfig, processed_pipeline):
-    """Validates Phase 4 candidate landing sites slope constraint (<=5 deg) and dynamic justifications."""
+    """[SYNTHETIC FIXTURE] Validates Phase 4 candidate landing sites slope constraint (<=5 deg) and dynamic justifications."""
     selector = LandingSiteSelector(config=test_config)
     res = selector.process_and_export()
 
@@ -424,7 +455,7 @@ def test_phase4_landing_site_selection(test_config: LunaTraceConfig, processed_p
 
 
 def test_phase5_traverse_planning_and_battery(test_config: LunaTraceConfig, processed_pipeline):
-    """Validates Phase 5 pathfinding within derived slope limit (18 deg) and battery reserve (>20%)."""
+    """[SYNTHETIC FIXTURE] Validates Phase 5 pathfinding within derived slope limit (18 deg) and battery reserve (>20%)."""
     planner = RoverTraversePlanner(config=test_config)
     res = planner.process_and_export()
 
@@ -437,7 +468,7 @@ def test_phase5_traverse_planning_and_battery(test_config: LunaTraceConfig, proc
 
 
 def test_phase6_volume_estimation(test_config: LunaTraceConfig, processed_pipeline):
-    """Validates Phase 6 volumetric CRIM scenario ordering and positive ice volume."""
+    """[SYNTHETIC FIXTURE] Validates Phase 6 volumetric CRIM scenario ordering and positive ice volume."""
     estimator = IceVolumeEstimator(config=test_config)
     res = estimator.process_and_export()
 
@@ -454,7 +485,7 @@ def test_phase6_volume_estimation(test_config: LunaTraceConfig, processed_pipeli
 
 
 def test_artifacts_existence_and_provenance(test_config: LunaTraceConfig, processed_pipeline):
-    """Validates that all expected CSV tables and maps have cryptographic provenance sidecars."""
+    """[METADATA / PROVENANCE] Validates that all expected CSV tables and maps have cryptographic provenance sidecars."""
     expected_tables = [
         "phase1_polarimetric_summary.csv",
         "phase2_terrain_class_statistics.csv",
@@ -474,7 +505,7 @@ def test_artifacts_existence_and_provenance(test_config: LunaTraceConfig, proces
 @pytest.mark.slow
 def test_real_slc_crop_stokes_invariants():
     """
-    Ingests a small real Chandrayaan-2 DFSAR SLC crop from data/raw/ and asserts Stokes invariants:
+    [REAL DATA] Ingests a small real Chandrayaan-2 DFSAR SLC crop from data/raw/ and asserts Stokes invariants:
     - Zero-fill / invalid margin pixels are explicitly masked to NaN with valid_mask == 0.
     - S1 >= 0 everywhere on valid lunar pixels.
     - 0 <= DoP <= 1 everywhere on valid lunar pixels.

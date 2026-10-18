@@ -214,7 +214,6 @@ class PDS4IngestionConfig(BaseModel):
 
 class DEMRegistrationConfig(BaseModel):
     min_correlation_rho: float = Field(default=0.4, ge=0.0, le=1.0)
-    search_window_radius_m: float = Field(default=5000.0, ge=4400.0)
 
 
 class LunaTraceConfig(BaseModel):

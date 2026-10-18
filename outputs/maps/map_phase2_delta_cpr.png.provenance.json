@@ -1,8 +1,8 @@
 {
   "output_file": "map_phase2_delta_cpr.png",
   "output_sha256": "5543575e2211d66be18c3582a8903a1514cc306ed60db39986b883ece6064dfe",
-  "timestamp_utc": "2026-10-18T21:09:41.964562+00:00",
-  "git_commit": "225e128a3e2158adc82829a5996ec2973a01b5df",
+  "timestamp_utc": "2026-10-18T23:26:29.515758+00:00",
+  "git_commit": "5882ef0e37f3ff78a6094a66e56528fef7754c79",
   "software_versions": {
     "python": "3.14.7",
     "numpy": "2.5.3",
@@ -23,10 +23,10 @@
   },
   "config_snapshot": {
     "paths": {
-      "raw_data_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-203\\luna_test_fixtures0\\raw",
-      "processed_data_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-203\\luna_test_fixtures0\\processed",
-      "outputs_maps_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-203\\luna_test_fixtures0\\maps",
-      "outputs_tables_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-203\\luna_test_fixtures0\\tables",
+      "raw_data_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-205\\luna_test_fixtures0\\raw",
+      "processed_data_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-205\\luna_test_fixtures0\\processed",
+      "outputs_maps_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-205\\luna_test_fixtures0\\maps",
+      "outputs_tables_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-205\\luna_test_fixtures0\\tables",
       "provenance_file": "C:\\Users\\Ankit Singh Tomar\\LunaTrace\\LunaTrace\\DATA_PROVENANCE.md"
     },
     "crs": {
@@ -252,8 +252,7 @@
       "monte_carlo_random_seed": 42
     },
     "dem_registration": {
-      "min_correlation_rho": 0.4,
-      "search_window_radius_m": 5000.0
+      "min_correlation_rho": 0.4
     }
   },
   "metadata": {

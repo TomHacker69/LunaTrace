@@ -197,4 +197,3 @@ pds4_ingestion:
 
 dem_registration:
   min_correlation_rho: 0.4
-  search_window_radius_m: 5000.0  # Derived from uncertainty budget >= +/- 4.4 km
