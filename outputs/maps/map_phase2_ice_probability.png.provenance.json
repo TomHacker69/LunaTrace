@@ -1,8 +1,8 @@
 {
   "output_file": "map_phase2_ice_probability.png",
   "output_sha256": "29367ed9d27706f71e6428df62441dbddbd9383d90db7ad52cc645cf9b8c4e51",
-  "timestamp_utc": "2026-10-18T20:44:16.422177+00:00",
-  "git_commit": "4084a23b445bfb2c572d95a1fb22197be4876889",
+  "timestamp_utc": "2026-10-18T21:09:40.325381+00:00",
+  "git_commit": "225e128a3e2158adc82829a5996ec2973a01b5df",
   "software_versions": {
     "python": "3.14.7",
     "numpy": "2.5.3",
@@ -23,10 +23,10 @@
   },
   "config_snapshot": {
     "paths": {
-      "raw_data_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-200\\luna_test_fixtures0\\raw",
-      "processed_data_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-200\\luna_test_fixtures0\\processed",
-      "outputs_maps_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-200\\luna_test_fixtures0\\maps",
-      "outputs_tables_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-200\\luna_test_fixtures0\\tables",
+      "raw_data_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-203\\luna_test_fixtures0\\raw",
+      "processed_data_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-203\\luna_test_fixtures0\\processed",
+      "outputs_maps_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-203\\luna_test_fixtures0\\maps",
+      "outputs_tables_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-203\\luna_test_fixtures0\\tables",
       "provenance_file": "C:\\Users\\Ankit Singh Tomar\\LunaTrace\\LunaTrace\\DATA_PROVENANCE.md"
     },
     "crs": {
@@ -247,13 +247,13 @@
       "range_looks": 2,
       "target_resolution_m": 20.0,
       "geocoding_interpolation": "bilinear",
-      "default_terrain_relief_m": 1500.0,
       "snr_near_noise_threshold_db": 3.0,
       "monte_carlo_trials": 100000,
-      "monte_carlo_random_seed": 42,
-      "dop_eff_looks_level1": 7.6,
-      "dop_eff_looks_level2": 68.4,
-      "dop_eff_looks_level3": 190.0
+      "monte_carlo_random_seed": 42
+    },
+    "dem_registration": {
+      "min_correlation_rho": 0.4,
+      "search_window_radius_m": 5000.0
     }
   },
   "metadata": {

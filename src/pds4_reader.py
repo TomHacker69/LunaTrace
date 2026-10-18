@@ -23,6 +23,7 @@ from rasterio.transform import from_origin, Affine
 from pyproj import Transformer, CRS
 from scipy.interpolate import griddata
 from scipy.ndimage import uniform_filter
+from matplotlib.path import Path as MplPath
 
 from src.config_schema import LunaTraceConfig, BoundingBoxConfig
 from src.provenance import write_provenance_sidecar, compute_file_sha256
@@ -173,6 +174,13 @@ def parse_pds4_xml_label(xml_path: Path) -> Dict[str, Any]:
 
     q_flag_elem = root.find(".//geo_error_quality_flag")
     parsed["geo_error_quality_flag"] = int(q_flag_elem.text.strip()) if (q_flag_elem is not None and q_flag_elem.text) else 1
+
+    # 9. Look Direction and Orbit Node
+    look_elem = root.find(".//look_direction")
+    parsed["look_direction"] = look_elem.text.strip().upper() if (look_elem is not None and look_elem.text) else "LEFT"
+
+    node_elem = root.find(".//node")
+    parsed["node"] = node_elem.text.strip().upper() if (node_elem is not None and node_elem.text) else "DESCENDING"
 
     return parsed
 
@@ -405,26 +413,72 @@ def multilook_and_compute_stokes(
 def compute_dem_radar_shadow_and_layover_masks(
     dem: np.ndarray,
     pixel_spacing_m: float,
-    incidence_angle_deg: float
+    incidence_angle_deg: float,
+    look_direction: str = "LEFT"
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Computes radar shadow and layover binary masks from DEM geometry and incidence angle.
-    - Layover condition: Local terrain slope toward the radar exceeds the radar look/incidence angle.
-    - Shadow condition: Local terrain slope away from the radar exceeds (90 deg - incidence angle).
-    """
-    dy, dx = np.gradient(dem, pixel_spacing_m)
-    slope_rad = np.arctan(np.abs(dx))
-    inc_rad = np.radians(incidence_angle_deg)
+    Reference: Curlander & McDonough (1991) Synthetic Aperture Radar, Sec 1.3;
+               Woodhouse (2006) Introduction to Microwave Remote Sensing, Sec 11.2.
 
-    layover_mask = slope_rad > inc_rad
-    shadow_mask = slope_rad > (np.pi / 2.0 - inc_rad)
+    SAR Geometry Definitions:
+    - Look vector: points along ground range away from the nadir ground track towards the swath.
+      For descending polar orbit (southward flight along columns), look_direction 'LEFT' points East (+X, increasing column index).
+      look_direction 'RIGHT' points West (-X, decreasing column index).
+    - Slope in range direction:
+        dz_dr = d(elevation) / d(ground_range)
+      dz_dr > 0: terrain rises as we move away from radar (foreslope facing the radar).
+      dz_dr < 0: terrain falls as we move away from radar (backslope facing away from radar).
+
+    Layover Condition:
+    - When the terrain slope facing the radar exceeds the radar incidence angle theta_inc:
+        alpha_facing = arctan(dz_dr) > theta_inc  <=>  dz_dr > tan(theta_inc)
+      The top of the slope has a smaller slant range than its base, causing range inversion.
+
+    Shadow Condition:
+    - Local backslope shadow: When the backslope away from the radar exceeds (90 deg - theta_inc):
+        alpha_back = arctan(-dz_dr) > (90 deg - theta_inc)  <=>  -dz_dr > cot(theta_inc)
+    - Cast shadow: When preceding high topography blocks the radar line of sight along the range sweep.
+    """
+    inc_rad = np.radians(incidence_angle_deg)
+    tan_inc = np.tan(inc_rad)
+    cot_inc = 1.0 / np.tan(inc_rad)
+
+    # Compute elevation gradient along columns (X / range direction)
+    _, dx = np.gradient(dem, pixel_spacing_m)
+
+    # Direction of increasing ground range (away from nadir track)
+    is_left = look_direction.upper() == "LEFT"
+    dz_dr = dx if is_left else -dx
+
+    # 1. Layover mask: slope facing the radar exceeds incidence angle
+    layover_mask = dz_dr > tan_inc
+
+    # 2. Local backslope shadow: backslope exceeds (90 deg - incidence angle)
+    backslope_shadow = (-dz_dr) > cot_inc
+
+    # 3. Cast shadow along the range direction (ray-tracing line of sight)
+    cast_shadow = np.zeros_like(dem, dtype=bool)
+    nrows, ncols = dem.shape
+    col_list = list(range(ncols)) if is_left else list(range(ncols - 1, -1, -1))
+    delta_drop = cot_inc * pixel_spacing_m
+
+    los_elev = np.full(nrows, -1e9, dtype=np.float64)
+    for c in col_list:
+        curr_elev = dem[:, c].astype(np.float64)
+        shadowed = curr_elev < los_elev
+        cast_shadow[:, c] = shadowed
+        los_elev = np.maximum(curr_elev, los_elev - delta_drop)
+
+    shadow_mask = backslope_shadow | cast_shadow
     return shadow_mask.astype(np.uint8), layover_mask.astype(np.uint8)
 
 
 def simulate_radar_intensity_from_dem(
     dem: np.ndarray,
     pixel_spacing_m: float,
-    incidence_angle_deg: float
+    incidence_angle_deg: float,
+    look_direction: str = "LEFT"
 ) -> np.ndarray:
     """
     Simulates radar backscatter intensity from a registered DEM using local surface normal and incidence angle.
@@ -432,8 +486,9 @@ def simulate_radar_intensity_from_dem(
     """
     dy, dx = np.gradient(dem, pixel_spacing_m)
     norm = np.sqrt(dx**2 + dy**2 + 1.0)
-    s_x = np.sin(np.radians(incidence_angle_deg))
-    s_z = -np.cos(np.radians(incidence_angle_deg))
+    inc_rad = np.radians(incidence_angle_deg)
+    s_x = np.sin(inc_rad) if look_direction.upper() == "LEFT" else -np.sin(inc_rad)
+    s_z = -np.cos(inc_rad)
     cos_theta_local = np.clip((-dx * s_x + 1.0 * s_z) / norm, 0.0, 1.0)
     return cos_theta_local.astype(np.float32)
 
@@ -441,11 +496,14 @@ def simulate_radar_intensity_from_dem(
 def cross_correlate_dem_with_sar(
     dem_sim: np.ndarray,
     sar_s1: np.ndarray,
-    pixel_spacing_m: float = 20.0
-) -> Dict[str, float]:
+    pixel_spacing_m: float = 20.0,
+    min_correlation_rho: float = 0.4,
+    search_window_radius_m: float = 5000.0
+) -> Dict[str, Any]:
     """
     Cross-correlates a DEM-simulated radar backscatter image with the real SAR S1 image
     to estimate the empirical 2D spatial offset (offset_azimuth_m, offset_range_m).
+    Search window radius (default +/- 5000 m) is derived from the uncertainty budget (>= +/- 4.4 km).
     """
     from scipy.signal import correlate2d
     ny = min(dem_sim.shape[0], sar_s1.shape[0])
@@ -460,12 +518,188 @@ def cross_correlate_dem_with_sar(
     y_center, x_center = corr.shape[0] // 2, corr.shape[1] // 2
     offset_y_m = (y_peak - y_center) * step * pixel_spacing_m
     offset_x_m = (x_peak - x_center) * step * pixel_spacing_m
-    norm_denom = np.linalg.norm(d_sub) * np.linalg.norm(s_sub) + 1e-12
+    norm_denom = np.linalg.norm(d_sub[::step, ::step]) * np.linalg.norm(s_sub[::step, ::step]) + 1e-12
+    max_rho = float(np.max(corr) / norm_denom)
+
+    within_search_window = (abs(offset_x_m) <= search_window_radius_m) and (abs(offset_y_m) <= search_window_radius_m)
+    accepted = (max_rho >= min_correlation_rho) and within_search_window
 
     return {
         "offset_azimuth_m": float(offset_y_m),
         "offset_range_m": float(offset_x_m),
-        "max_correlation": float(np.max(corr) / norm_denom)
+        "max_correlation": max_rho,
+        "min_correlation_threshold": min_correlation_rho,
+        "search_window_radius_m": search_window_radius_m,
+        "within_search_window": within_search_window,
+        "correlation_accepted": accepted
+    }
+
+
+def parse_lola_pds3_label(lbl_path: Path) -> Dict[str, Any]:
+    """
+    Parses a PDS3 label for LOLA DEM products manually.
+    Extracts binary data specifications, map projection, and scaling factors without relying on GDAL.
+    """
+    if not lbl_path.exists():
+        raise FileNotFoundError(f"LOLA PDS3 label not found: {lbl_path}")
+
+    params: Dict[str, Any] = {}
+    with open(lbl_path, "r", encoding="ascii", errors="ignore") as f:
+        for line in f:
+            line = line.strip()
+            if "=" in line:
+                k, v = line.split("=", 1)
+                k = k.strip().upper()
+                v = v.strip().strip('"').strip("'")
+                if "<" in v:
+                    v = v.split("<", 1)[0].strip()
+                params[k] = v
+
+    lines = int(params.get("LINES", 0))
+    line_samples = int(params.get("LINE_SAMPLES", 0))
+    sample_bits = int(params.get("SAMPLE_BITS", 16))
+    sample_type = params.get("SAMPLE_TYPE", "MSB_INTEGER").upper()
+    scaling_factor = float(params.get("SCALING_FACTOR", 0.5))
+    offset = float(params.get("OFFSET", 0.0))
+    missing_constant = float(params.get("MISSING_CONSTANT", -32768))
+
+    return {
+        "lines": lines,
+        "line_samples": line_samples,
+        "sample_bits": sample_bits,
+        "sample_type": sample_type,
+        "scaling_factor": scaling_factor,
+        "offset": offset,
+        "missing_constant": missing_constant,
+        "image_file": params.get("^IMAGE", ""),
+        "raw_params": params
+    }
+
+
+def read_lola_pds3_dem(
+    lbl_path: Path,
+    img_path: Optional[Path] = None
+) -> Tuple[np.ndarray, Dict[str, Any]]:
+    """
+    Manually reads a LOLA DEM from PDS3 .lbl and binary .IMG without GDAL.
+    Verifies height = DN * SCALING_FACTOR + OFFSET against the label and asserts
+    that lunar elevations fall strictly within the physically plausible range [-12000 m, +12000 m].
+    """
+    lbl_meta = parse_lola_pds3_label(lbl_path)
+    if img_path is None:
+        img_name = lbl_meta["image_file"]
+        if not img_name:
+            img_path = lbl_path.with_suffix(".IMG")
+            if not img_path.exists():
+                img_path = lbl_path.with_suffix(".img")
+        else:
+            img_path = lbl_path.parent / img_name
+            if not img_path.exists():
+                for f in lbl_path.parent.iterdir():
+                    if f.name.upper() == img_name.upper():
+                        img_path = f
+                        break
+
+    if not img_path.exists():
+        raise FileNotFoundError(f"LOLA DEM binary image file not found: {img_path}")
+
+    sample_type = lbl_meta["sample_type"]
+    sample_bits = lbl_meta["sample_bits"]
+    byte_order = ">" if ("MSB" in sample_type or "SUN" in sample_type) else "<"
+
+    if "INTEGER" in sample_type or "INT" in sample_type:
+        dtype_str = f"{byte_order}i{sample_bits // 8}"
+    elif "REAL" in sample_type or "FLOAT" in sample_type:
+        dtype_str = f"{byte_order}f{sample_bits // 8}"
+    else:
+        dtype_str = f"{byte_order}i2"
+
+    lines = lbl_meta["lines"]
+    line_samples = lbl_meta["line_samples"]
+    raw_bytes = img_path.read_bytes()
+    expected_bytes = lines * line_samples * (sample_bits // 8)
+    if len(raw_bytes) < expected_bytes:
+        raise ValueError(
+            f"LOLA DEM binary file {img_path.name} is undersized: expected {expected_bytes} bytes, found {len(raw_bytes)}"
+        )
+
+    raw_dn = np.frombuffer(raw_bytes[:expected_bytes], dtype=np.dtype(dtype_str)).reshape((lines, line_samples))
+
+    missing_val = lbl_meta["missing_constant"]
+    valid_mask = raw_dn != missing_val
+
+    scaling = lbl_meta["scaling_factor"]
+    offset = lbl_meta["offset"]
+    elevation_m = np.where(valid_mask, raw_dn.astype(np.float32) * scaling + offset, np.nan)
+
+    valid_elev = elevation_m[valid_mask]
+    if len(valid_elev) > 0:
+        min_elev = float(np.min(valid_elev))
+        max_elev = float(np.max(valid_elev))
+        if min_elev < -12000.0 or max_elev > 12000.0:
+            raise ValueError(
+                f"LOLA DEM elevation out of plausible lunar range [-12000 m, +12000 m]: "
+                f"min = {min_elev:.1f} m, max = {max_elev:.1f} m. Verify label SCALING_FACTOR and OFFSET."
+            )
+
+    return elevation_m, lbl_meta
+
+
+def check_coordinate_in_footprint(
+    coord_lat: float,
+    coord_lon: float,
+    label_meta: Dict[str, Any],
+    geom_csv_path: Optional[Path] = None
+) -> Dict[str, Any]:
+    """
+    Computes whether the product footprint contains a given candidate coordinate.
+    Uses exact sub-meter tie-point boundary polygon if geom_csv_path is provided,
+    otherwise uses the 4 XML label corner coordinates in Polar Stereographic projection.
+    """
+    source_crs = f"+proj=longlat +R={LUNAR_MEAN_RADIUS_M} +no_defs"
+    target_crs = f"+proj=stere +lat_0=-90 +lon_0=0 +k=1 +x_0=0 +y_0=0 +R={LUNAR_MEAN_RADIUS_M} +units=m +no_defs"
+    transformer = Transformer.from_crs(source_crs, target_crs, always_xy=True)
+
+    if geom_csv_path is not None and geom_csv_path.exists():
+        df = pd.read_csv(geom_csv_path)
+        lat_col = [c for c in df.columns if "lat" in c.lower()][0]
+        lon_col = [c for c in df.columns if "lon" in c.lower()][0]
+        left_edge = df.iloc[0::38]
+        right_edge = df.iloc[37::38].iloc[::-1]
+        boundary = pd.concat([left_edge, right_edge])
+        poly_lons = boundary[lon_col].values
+        poly_lats = boundary[lat_col].values
+    else:
+        fp = label_meta.get("footprint", {})
+        poly_lons = [
+            fp["upper_left_longitude"],
+            fp["upper_right_longitude"],
+            fp["lower_right_longitude"],
+            fp["lower_left_longitude"]
+        ]
+        poly_lats = [
+            fp["upper_left_latitude"],
+            fp["upper_right_latitude"],
+            fp["lower_right_latitude"],
+            fp["lower_left_latitude"]
+        ]
+
+    bx, by = transformer.transform(poly_lons, poly_lats)
+    poly = MplPath(np.column_stack([bx, by]))
+
+    px, py = transformer.transform(coord_lon, coord_lat)
+    is_inside = bool(poly.contains_point((px, py)))
+
+    poly_pts = np.column_stack([bx, by])
+    vertex_dists = np.sqrt((poly_pts[:, 0] - px)**2 + (poly_pts[:, 1] - py)**2)
+    min_dist_m = float(np.min(vertex_dists))
+
+    return {
+        "candidate_latitude": float(coord_lat),
+        "candidate_longitude": float(coord_lon),
+        "is_inside_footprint": is_inside,
+        "distance_to_boundary_m": min_dist_m,
+        "boundary_point_count": len(bx)
     }
 
 
@@ -476,25 +710,12 @@ def geocode_stokes_to_crs(
     target_crs: str,
     target_res_m: float = 20.0,
     label_meta: Optional[Dict[str, Any]] = None,
-    dem_path: Optional[Path] = None,
-    default_terrain_relief_m: float = 1500.0
-) -> Tuple[Dict[str, np.ndarray], Affine, Dict[str, float]]:
+    dem_path: Optional[Path] = None
+) -> Tuple[Dict[str, np.ndarray], Affine, Dict[str, Any]]:
     """
-    Geocodes multilooked Stokes arrays to the target Polar Stereographic CRS (EPSG:3032)
-    using Range-Doppler tie-point geometry and LOLA DEM terrain correction.
-
-    Sampling & Range-Doppler Interpolation:
-    --------------------------------------
-    - Geometry grid: 38 across-track samples by 8,289 along-track tie lines (every 32 scans).
-    - Topographic terrain parallax correction:
-        Delta_r_ground = h(x, y) / tan(theta_inc)
-      where h is LOLA DEM elevation relief and theta_inc is local incidence angle.
-    - Timing bias correction:
-        Along-track shift Delta_x = v_ground * geo_error_time_seconds (-2.026 s from XML label).
-    - Geolocation uncertainty formulation:
-        sigma_geo(x, y) = sqrt((sigma_h / tan(theta_inc))^2 + sigma_range^2 + sigma_along^2)
-      computed per pixel from LOLA elevation accuracy (sigma_h = 1.0 m) and XML radar timing/range
-      residuals (sigma_range = 31.76 m, sigma_along = 3.5 m).
+    Geocodes multilooked Stokes arrays to the target Polar Stereographic CRS (EPSG:3032).
+    Requires a registered LOLA DEM for terrain correction; without a DEM, geolocation uncertainty
+    is reported as UNKNOWN.
     """
     if not geom_csv_path.exists():
         raise FileNotFoundError(f"Geometry geocoding CSV not found: {geom_csv_path}")
@@ -505,7 +726,6 @@ def geocode_stokes_to_crs(
     lon_col = [c for c in geom_df.columns if "lon" in c.lower()][0]
     inc_col = [c for c in geom_df.columns if "inc" in c.lower()][0]
 
-    # Filter tie points overlapping bounding box with a 0.1 deg margin
     lat_margin = 0.1
     lon_margin = 1.0
     sub_df = geom_df[
@@ -518,7 +738,6 @@ def geocode_stokes_to_crs(
     if len(sub_df) < 10:
         sub_df = geom_df.iloc[::20].copy()
 
-    # Convert tie points to target Polar Stereographic coordinates
     os.environ["PROJ_IGNORE_CELESTIAL_BODY"] = "YES"
     source_crs = f"+proj=longlat +R={LUNAR_MEAN_RADIUS_M} +no_defs"
     transformer = Transformer.from_crs(source_crs, target_crs, always_xy=True)
@@ -526,13 +745,9 @@ def geocode_stokes_to_crs(
     lats = sub_df[lat_col].values
     x_coords, y_coords = transformer.transform(lons, lats)
 
-    # Along-track timing error (-2.026 s / -3115.97 m) is unvalidated against ground truth.
-    # As required, we do NOT apply an ad-hoc coordinate shift. The tie points are left unshifted,
-    # and the full -3115.97 m is treated as along-track systematic uncertainty (sigma_along).
     sigma_along = abs(label_meta.get("geo_error_time_meters", 3115.967)) if label_meta else 3115.967
     sigma_range = label_meta.get("geo_error_range_meters", 31.759) if label_meta else 31.759
 
-    # Determine bounding box grid in meters
     x_min, x_max = float(np.min(x_coords)), float(np.max(x_coords))
     y_min, y_max = float(np.min(y_coords)), float(np.max(y_coords))
 
@@ -541,29 +756,33 @@ def geocode_stokes_to_crs(
     mesh_x, mesh_y = np.meshgrid(grid_x, grid_y)
 
     transform = from_origin(x_min, y_max, target_res_m, target_res_m)
-
-    # For an uncorrected spherical geocode (datum R = 1737.4 km without LOLA DEM),
-    # the dominant geolocation error term is terrain relief x cot(incidence).
-    # Regional lunar south polar relief Delta_h spans +/- 1500 m to +/- 3000 m.
-    inc_angles = sub_df[inc_col].values if inc_col in sub_df.columns else np.full(len(sub_df), 25.994)
-    rad_inc = np.radians(np.clip(inc_angles, 15.0, 75.0))
-    delta_h_relief = 1500.0  # Conservative 1-sigma terrain elevation variance relative to sphere (m)
-    terrain_error_m = delta_h_relief / np.tan(rad_inc)  # Delta_h * cot(theta_inc)
-
-    # Total geolocation uncertainty in quadrature
-    tie_unc = np.sqrt(terrain_error_m ** 2 + sigma_along ** 2 + sigma_range ** 2)
-
-    # Interpolate uncertainty to grid
     tie_points = np.column_stack([x_coords, y_coords])
-    grid_unc = griddata(tie_points, tie_unc, (mesh_x, mesh_y), method="linear", fill_value=float(np.mean(tie_unc)))
 
-    unc_stats = {
-        "min_m": float(np.min(grid_unc)),
-        "median_m": float(np.median(grid_unc)),
-        "mean_m": float(np.mean(grid_unc)),
-        "p90_m": float(np.percentile(grid_unc, 90)),
-        "max_m": float(np.max(grid_unc)),
-    }
+    # Geolocation uncertainty budget
+    if dem_path is None or not Path(dem_path).exists():
+        unc_stats: Dict[str, Any] = {
+            "status": "UNKNOWN",
+            "description": "LOLA DEM not registered; parallax relief displacement cannot be bounded without terrain elevation."
+        }
+        grid_unc = np.full(mesh_x.shape, np.nan, dtype=np.float32)
+    else:
+        # Registered DEM terrain correction
+        dem_arr, _ = read_lola_pds3_dem(dem_path) if str(dem_path).lower().endswith(".lbl") else (rasterio.open(dem_path).read(1), {})
+        dem_mean = float(np.nanmean(dem_arr))
+        delta_h_relief = float(np.nanstd(dem_arr))
+        inc_angles = sub_df[inc_col].values if inc_col in sub_df.columns else np.full(len(sub_df), 25.994)
+        rad_inc = np.radians(np.clip(inc_angles, 15.0, 75.0))
+        terrain_error_m = delta_h_relief / np.tan(rad_inc)
+        tie_unc = np.sqrt(terrain_error_m ** 2 + sigma_along ** 2 + sigma_range ** 2)
+        grid_unc = griddata(tie_points, tie_unc, (mesh_x, mesh_y), method="linear", fill_value=float(np.mean(tie_unc))).astype(np.float32)
+        unc_stats = {
+            "status": "COMPUTED",
+            "min_m": float(np.nanmin(grid_unc)),
+            "median_m": float(np.nanmedian(grid_unc)),
+            "mean_m": float(np.nanmean(grid_unc)),
+            "p90_m": float(np.nanpercentile(grid_unc, 90)),
+            "max_m": float(np.nanmax(grid_unc)),
+        }
 
     # Resample each Stokes component to projected regular grid
     geocoded_stokes: Dict[str, np.ndarray] = {}
@@ -713,9 +932,12 @@ def run_phase0_ingestion(config: LunaTraceConfig, pds4_dir: Optional[Path] = Non
         target_crs=config.crs.proj4_string,
         target_res_m=config.pds4_ingestion.target_resolution_m,
         label_meta=label_meta,
-        default_terrain_relief_m=config.pds4_ingestion.default_terrain_relief_m
+        dem_path=None
     )
-    print(f"[+] Computed Geolocation Uncertainty: min = {unc_stats['min_m']:.2f} m, median = {unc_stats['median_m']:.2f} m, 90th percentile = {unc_stats['p90_m']:.2f} m, max = {unc_stats['max_m']:.2f} m")
+    if unc_stats.get("status") == "UNKNOWN":
+        print(f"[!] Geolocation Uncertainty: UNKNOWN ({unc_stats.get('description')})")
+    else:
+        print(f"[+] Computed Geolocation Uncertainty: min = {unc_stats['min_m']:.2f} m, median = {unc_stats['median_m']:.2f} m, 90th percentile = {unc_stats['p90_m']:.2f} m, max = {unc_stats['max_m']:.2f} m")
 
     # 7. Save geocoded rasters to processed dir with provenance sidecars
     out_dir = config.paths.processed_data_dir

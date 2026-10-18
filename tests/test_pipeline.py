@@ -22,7 +22,11 @@ from src.pds4_reader import (
     read_complex_slc_pair,
     apply_radiometric_calibration,
     multilook_and_compute_stokes,
-    run_phase0_ingestion
+    run_phase0_ingestion,
+    compute_dem_radar_shadow_and_layover_masks,
+    read_lola_pds3_dem,
+    parse_lola_pds3_label,
+    check_coordinate_in_footprint
 )
 from src.phase1_dfsar import DFSARProcessor, run_phase1
 from src.phase2_ice_detection import IceDetectionEngine, run_phase2
@@ -210,6 +214,134 @@ def test_dop_wishart_null_distribution_monte_carlo():
             # At N=16, m=0.13, verify old formula had a massive error (> 10%)
             if n_looks == 16 and threshold == 0.13:
                 assert abs(old_formula_cdf - emp_cdf) > 0.10, "Old formula should fail significantly"
+
+
+def test_sar_layover_and_shadow_geometry():
+    """
+    Validates SAR layover and shadow masks on a synthetic ramp DEM:
+    - Layover condition: foreslope facing radar > incidence angle
+    - Shadow condition: backslope away from radar > (90 deg - incidence angle)
+    - Evaluates both left-looking and right-looking geometries.
+    """
+    inc_deg = 26.0
+    dx = 20.0  # meters per pixel
+
+    # Profile across 50 columns:
+    # Cols 0-10: flat (0 m)
+    # Cols 10-15: steep foreslope rising by 14 m/col -> dz/dx = 0.70 > tan(26 deg) [0.488] -> LAYOVER
+    # Cols 15-25: gentle foreslope rising by 5 m/col -> dz/dx = 0.25 < tan(26 deg) -> NO LAYOVER
+    # Cols 25-30: gentle backslope dropping by 15 m/col -> dz/dx = -0.75 -> NO SHADOW (-dz/dx = 0.75 < cot(26 deg) [2.05])
+    # Cols 30-35: steep backslope dropping by 50 m/col -> dz/dx = -2.50 -> SHADOW (-dz/dx = 2.50 > cot(26 deg))
+    profile = np.zeros(50, dtype=float)
+    for c in range(10, 15):
+        profile[c] = profile[c-1] + 14.0
+    for c in range(15, 25):
+        profile[c] = profile[c-1] + 5.0
+    for c in range(25, 30):
+        profile[c] = profile[c-1] - 15.0
+    for c in range(30, 35):
+        profile[c] = profile[c-1] - 50.0
+    for c in range(35, 50):
+        profile[c] = profile[34]
+
+    dem_left = np.tile(profile, (10, 1))
+    shadow, layover = compute_dem_radar_shadow_and_layover_masks(
+        dem_left, pixel_spacing_m=dx, incidence_angle_deg=inc_deg, look_direction="LEFT"
+    )
+
+    # Cols 10-14 have steep foreslope -> must be layover
+    assert np.all(layover[:, 10:14] == 1), "Steep foreslope facing radar must trigger layover"
+    # Cols 16-24 have gentle foreslope -> must NOT be layover
+    assert np.all(layover[:, 16:24] == 0), "Gentle foreslope must not trigger layover"
+    # Foreslope must not be shadow
+    assert np.all(shadow[:, 10:25] == 0), "Foreslope facing radar must not be shadow"
+    # Cols 30-34 have steep backslope -> must be shadow
+    assert np.all(shadow[:, 30:34] == 1), "Steep backslope sloping away must trigger shadow"
+    # Backslope must not trigger layover
+    assert np.all(layover[:, 25:35] == 0), "Backslope must not trigger layover"
+
+    # 2. Right-looking geometry (reversed look direction):
+    dem_right = np.fliplr(dem_left)
+    shadow_r, layover_r = compute_dem_radar_shadow_and_layover_masks(
+        dem_right, pixel_spacing_m=dx, incidence_angle_deg=inc_deg, look_direction="RIGHT"
+    )
+    np.testing.assert_array_equal(layover_r, np.fliplr(layover))
+    np.testing.assert_array_equal(shadow_r, np.fliplr(shadow))
+
+
+def test_lola_pds3_dem_manual_reader(tmp_path: Path):
+    """
+    Validates manual PDS3 reader for LOLA DEM:
+    - Parses .LBL parameters without GDAL
+    - Computes height = DN * SCALING_FACTOR + OFFSET
+    - Correctly handles MISSING_CONSTANT
+    - Rejects elevations outside plausible lunar range [-12000 m, +12000 m].
+    """
+    lbl_file = tmp_path / "ldem_test.lbl"
+    img_file = tmp_path / "ldem_test.img"
+
+    lines, samples = 20, 20
+    elev_true = np.linspace(-2000.0, 1000.0, lines * samples).reshape((lines, samples)).astype(np.float32)
+    raw_dn = (elev_true / 0.5).astype(np.int16)
+    raw_dn[0, 0] = -32768
+
+    raw_dn.astype(">i2").tofile(img_file)
+
+    lbl_content = f"""PDS_VERSION_ID = PDS3
+RECORD_TYPE = FIXED_LENGTH
+RECORD_BYTES = {samples * 2}
+FILE_RECORDS = {lines}
+^IMAGE = "{img_file.name}"
+OBJECT = IMAGE
+  LINES = {lines}
+  LINE_SAMPLES = {samples}
+  SAMPLE_BITS = 16
+  SAMPLE_TYPE = MSB_INTEGER
+  SCALING_FACTOR = 0.5 <METER>
+  OFFSET = 0.0 <METER>
+  MISSING_CONSTANT = -32768
+END_OBJECT = IMAGE
+END
+"""
+    lbl_file.write_text(lbl_content, encoding="ascii")
+
+    elev_parsed, meta = read_lola_pds3_dem(lbl_file)
+    assert meta["scaling_factor"] == 0.5
+    assert meta["offset"] == 0.0
+    assert np.isnan(elev_parsed[0, 0]), "Missing pixel must be masked as NaN"
+    np.testing.assert_allclose(elev_parsed[1:, 1:], elev_true[1:, 1:], atol=0.5)
+
+    # Test rejection of unphysical elevations (< -12000 m or > +12000 m)
+    corrupt_dn = np.full((lines, samples), 30000, dtype=">i2")
+    corrupt_dn.tofile(img_file)
+    with pytest.raises(ValueError, match="out of plausible lunar range"):
+        read_lola_pds3_dem(lbl_file)
+
+
+def test_coordinate_footprint_containment():
+    """
+    Validates point-in-polygon containment computation for candidate coordinates against the swath footprint.
+    """
+    label_meta = {
+        "footprint": {
+            "upper_left_latitude": -84.433971,
+            "upper_left_longitude": 75.923767,
+            "upper_right_latitude": -84.424787,
+            "upper_right_longitude": 77.124202,
+            "lower_right_latitude": -88.529488,
+            "lower_right_longitude": 101.847497,
+            "lower_left_latitude": -88.587333,
+            "lower_left_longitude": 97.469234
+        }
+    }
+    geom_csv_path = Path("data/raw/ch2_sar_ncxl_20260403t190328238_d_cp_d18/geometry/calibrated/20260403/ch2_sar_ncxl_20260403t190328238_g_sli_xx_cp_xx_d18.csv")
+
+    res_center = check_coordinate_in_footprint(-86.510862, 83.925179, label_meta, geom_csv_path=geom_csv_path)
+    assert res_center["is_inside_footprint"] is True
+
+    res_outside = check_coordinate_in_footprint(0.0, 0.0, label_meta, geom_csv_path=geom_csv_path)
+    assert res_outside["is_inside_footprint"] is False
+    assert res_outside["distance_to_boundary_m"] > 100000.0
 
 
 

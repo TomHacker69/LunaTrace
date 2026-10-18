@@ -207,13 +207,14 @@ class PDS4IngestionConfig(BaseModel):
     range_looks: int = Field(gt=0, default=2)
     target_resolution_m: float = Field(gt=0, default=20.0)
     geocoding_interpolation: str = "bilinear"
-    default_terrain_relief_m: float = Field(gt=0, default=1500.0)
     snr_near_noise_threshold_db: float = Field(default=3.0)
     monte_carlo_trials: int = Field(gt=0, default=100000)
     monte_carlo_random_seed: int = Field(default=42)
-    dop_eff_looks_level1: float = Field(gt=0, default=7.6)
-    dop_eff_looks_level2: float = Field(gt=0, default=68.4)
-    dop_eff_looks_level3: float = Field(gt=0, default=190.0)
+
+
+class DEMRegistrationConfig(BaseModel):
+    min_correlation_rho: float = Field(default=0.4, ge=0.0, le=1.0)
+    search_window_radius_m: float = Field(default=5000.0, ge=4400.0)
 
 
 class LunaTraceConfig(BaseModel):
@@ -230,6 +231,7 @@ class LunaTraceConfig(BaseModel):
     visualization: VisualizationConfig
     target_bounding_box: Optional[BoundingBoxConfig] = None
     pds4_ingestion: PDS4IngestionConfig = Field(default_factory=PDS4IngestionConfig)
+    dem_registration: DEMRegistrationConfig = Field(default_factory=DEMRegistrationConfig)
 
 
 def load_config(config_path: Optional[Path] = None) -> LunaTraceConfig:

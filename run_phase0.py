@@ -5,16 +5,19 @@ Wishart DoP Null Distribution Monte Carlo Verification, NESZ Polynomial Evaluati
 and Common-Grid Block-Averaged SLC/GRI Calibration.
 
 Directives strictly observed:
-1. Full unsorted set of homogeneous patches for ENL: median and spread reported; reconciled with autocorrelation.
-2. True effective looks for DoP windowing (3x3 gives ~68 looks, not 136; 5x5 gives ~190 looks for 90% acceptance at m <= 0.13).
-3. Exact pixel counts satisfying CPR > 1.0 and DOP <= 0.13 at each look level (no threshold tuning).
-4. Removal of edge drop claim derived from speckled S1.
-5. Removal of theoretical claim CPR->1 and DOP->0 for near-noise pixels; full NESZ polynomial from XML displayed.
-6. Fixed Monte Carlo script (print inside loop, single trial count, seed from config); saved as unit test in test_pipeline.py.
-7. Support for per-pixel relief from registered DEM with config fallback.
-8. DEM-simulated radar cross-correlation and shadow/layover mask functions implemented.
-9. No hardcoded constants in script; all loaded from config.yaml.
-10. Does NOT run Phases 1-6. Does NOT choose a crater or bounding box.
+1. Fix acceptance claim: At 68.4 looks, DoP <= 0.13 acceptance is 48.9% (betainc(1.5, N-1, 0.13^2)), not 67.4%.
+   All acceptance percentages recomputed dynamically in code via betainc.
+2. ENL: Estimated from single-channel intensity (ILH, ILV) on homogeneous patches and from autocorrelation (16 / 3.803 ~ 4.21).
+   Removed unjustified '/2' factor. Median reported over all patches; conservative value selected.
+3. Effective looks and window size computed at runtime from measured ENL; hardcoded looks removed from config.
+   Reports window needed for 90% acceptance at m <= 0.13 and resolution in metres.
+4. Removed claim that candidate counts 'stabilizing' shows speckle suppression. Whole-strip counts are not ice candidates.
+5. Removed default_terrain_relief_m. Without a registered DEM, geolocation uncertainty is reported as UNKNOWN.
+6. Cross-correlation threshold rho > 0.4 and search window (+/- 5000 m >= +/- 4.4 km) loaded from config.
+7. Proper SAR geometry for layover (foreslope > incidence) and shadow (backslope > 90 deg - incidence).
+8. Clear pixel count separation: Total Raster, Valid Raw Pixels, Valid Near-Noise, Valid Reliable Signal (SNR >= 3 dB).
+9. LOLA DEM PDS3 manual reader with height = DN * SCALING_FACTOR + OFFSET and [-12000 m, 12000 m] elevation assertions.
+10. Dynamic footprint containment computation for candidate coordinates.
 """
 
 from pathlib import Path
@@ -37,7 +40,8 @@ from src.pds4_reader import (
     multilook_and_compute_stokes,
     simulate_radar_intensity_from_dem,
     compute_dem_radar_shadow_and_layover_masks,
-    cross_correlate_dem_with_sar
+    cross_correlate_dem_with_sar,
+    check_coordinate_in_footprint
 )
 
 
@@ -78,21 +82,26 @@ def run_wishart_monte_carlo(config):
             fB = float(betainc(1.5, N - 1, tm**2) * 100.0)
             print(f"  m <= {tm:.2f}: Empirical = {emp:6.3f}%, Formula A = {fA:6.3f}%, Formula B (Wishart) = {fB:6.3f}% | Wishart Error = {abs(emp - fB):5.3f}%", flush=True)
 
+    # Dynamic calculation of acceptance at 68.4 looks
+    acc_68_013 = float(betainc(1.5, 68.4 - 1.0, 0.13**2) * 100.0)
+    print(f"\n[+] Verified Wishart Null Acceptance at N = 68.4 looks (m <= 0.13):")
+    print(f"    F(0.13) = I_{{0.13^2}}(1.5, 67.4) = {acc_68_013:.1f}% (NOT 67.4%!)")
+
     # Solve for looks needed for 90% acceptance at m <= 0.13
     target_m = 0.13
     m2 = target_m**2
     n_for_90 = brentq(lambda n: betainc(1.5, n - 1, m2) - 0.90, 10, 500)
-    print(f"\n[+] Theoretical Independent Looks needed for 90% Acceptance at m <= 0.13:")
+    print(f"[+] Theoretical Independent Looks needed for 90% Acceptance at m <= 0.13:")
     print(f"    N_exact = {n_for_90:.2f} looks (requires ceil(N) = {int(np.ceil(n_for_90))} looks under 2x2 complex Wishart).")
 
 
-def measure_enl_full_patch_distribution(pds4_dir: Path, label_meta: dict):
+def measure_enl_single_channel_and_autocorr(pds4_dir: Path, label_meta: dict):
     """
-    Computes ENL on the full unsorted set of valid patches across the scene.
-    Reports median and spread (IQR, percentiles) and reconciles with raw complex autocorrelation.
+    Computes single-channel intensity ENL across all homogeneous patches and reconciles
+    with raw complex autocorrelation. Selects the conservative ENL bound.
     """
     print("\n" + "=" * 80)
-    print("   2. ENL: FULL UNSORTED PATCH DISTRIBUTION & AUTOCORRELATION RECONCILIATION")
+    print("   2. ENL: SINGLE-CHANNEL INTENSITY PATCHES & AUTOCORRELATION RECONCILIATION")
     print("=" * 80)
 
     lh_path = list(pds4_dir.glob("**/*_d_sli_*_lh_d18.tif"))[0]
@@ -110,87 +119,125 @@ def measure_enl_full_patch_distribution(pds4_dir: Path, label_meta: dict):
     broadening_az = 1.0 + 2.0 * sum(v**2 for v in autocorr_az[1:])
     broadening_rg = 1.0 + 2.0 * sum(v**2 for v in autocorr_rg[1:])
     oversampling_factor = broadening_az * broadening_rg
-    enl_speckle_bound = 16.0 / (oversampling_factor / 2.0)
+    # Unjustified /2 removed: nominal 16 looks / oversampling factor
+    enl_autocorr_bound = 16.0 / oversampling_factor
 
     print(f"Azimuth Autocorrelation |rho_az(k)| (lags 0-5): {[round(v, 4) for v in autocorr_az]}")
     print(f"Range Autocorrelation   |rho_rg(k)| (lags 0-5): {[round(v, 4) for v in autocorr_rg]}")
     print(f"Along-track (Azimuth) Broadening Factor: {broadening_az:.3f}")
     print(f"Slant-range Broadening Factor:          {broadening_rg:.3f}")
     print(f"Combined Sample Oversampling Factor:    {oversampling_factor:.3f}")
-    print(f"Autocorrelation-Predicted Pure Speckle ENL Bound: {enl_speckle_bound:.2f} looks (nominal 16)")
+    print(f"Autocorrelation-Predicted Per-Cell ENL: {enl_autocorr_bound:.2f} looks (16 nominal / {oversampling_factor:.3f})")
 
-    # 2. Full Unsorted Set of 30x30 Patches
+    # 2. Single-channel intensity multilooking (8 az x 2 rg)
     e_lh, e_lv = apply_radiometric_calibration(c_lh, c_lv, label_meta)
-    stokes = multilook_and_compute_stokes(e_lh, e_lv, azimuth_looks=8, range_looks=2, valid_raw_mask=valid_raw)
-    s1 = stokes["S1"]
-    vmask = stokes["valid_mask"] == 1
+    az_looks, rg_looks = 8, 2
+    h, w = e_lh.shape
+    h_out, w_out = h // az_looks, w // rg_looks
+
+    e_lh_c = e_lh[:h_out * az_looks, :w_out * rg_looks]
+    e_lv_c = e_lv[:h_out * az_looks, :w_out * rg_looks]
+    v_c = valid_raw[:h_out * az_looks, :w_out * rg_looks]
+
+    i_lh = np.mean(np.abs(e_lh_c).reshape(h_out, az_looks, w_out, rg_looks)**2, axis=(1, 3))
+    i_lv = np.mean(np.abs(e_lv_c).reshape(h_out, az_looks, w_out, rg_looks)**2, axis=(1, 3))
+    vmask = np.all(v_c.reshape(h_out, az_looks, w_out, rg_looks), axis=(1, 3))
 
     patch_size = 30
-    all_enls = []
-    for r in range(0, s1.shape[0] - patch_size, patch_size):
-        for c in range(50, s1.shape[1] - patch_size - 50, patch_size):
+    enls_lh, enls_lv, enls_comb = [], [], []
+    for r in range(0, h_out - patch_size, patch_size):
+        for c in range(50, w_out - patch_size - 50, patch_size):
             if np.all(vmask[r:r+patch_size, c:c+patch_size]):
-                p = s1[r:r+patch_size, c:c+patch_size]
-                m = float(np.mean(p))
-                v = float(np.var(p))
-                if m > 1e-4 and v > 0:
-                    all_enls.append((m**2) / v)
+                plh = i_lh[r:r+patch_size, c:c+patch_size]
+                plv = i_lv[r:r+patch_size, c:c+patch_size]
+                mlh, vlh = np.mean(plh), np.var(plh)
+                mlv, vlv = np.mean(plv), np.var(plv)
+                if mlh > 1e-4 and vlh > 0:
+                    enls_lh.append((mlh**2) / vlh)
+                if mlv > 1e-4 and vlv > 0:
+                    enls_lv.append((mlv**2) / vlv)
+                enls_comb.append(0.5 * ((mlh**2)/vlh + (mlv**2)/vlv))
 
-    all_enls = np.array(all_enls)
-    p10 = float(np.percentile(all_enls, 10))
-    p25 = float(np.percentile(all_enls, 25))
-    med_enl = float(np.median(all_enls))
-    mean_enl = float(np.mean(all_enls))
-    p75 = float(np.percentile(all_enls, 75))
-    p90 = float(np.percentile(all_enls, 90))
+    enls_comb = np.array(enls_comb)
+    med_enl_patch = float(np.median(enls_comb))
+    p10 = float(np.percentile(enls_comb, 10))
+    p25 = float(np.percentile(enls_comb, 25))
+    p75 = float(np.percentile(enls_comb, 75))
+    p90 = float(np.percentile(enls_comb, 90))
     iqr = p75 - p25
 
-    print("\nFull Unsorted Patch ENL Distribution (No Sorting / No Cherry-Picking):")
-    print(f"  Total Valid Non-Overlapping Patches Analyzed: {len(all_enls)}")
-    print(f"  Min ENL:    {float(np.min(all_enls)):.2f}")
+    print(f"\nSingle-Channel Intensity ENL over All {len(enls_comb)} Valid Patches:")
+    print(f"  Min ENL:    {float(np.min(enls_comb)):.2f}")
     print(f"  10th Pct:   {p10:.2f}")
     print(f"  25th Pct:   {p25:.2f}")
-    print(f"  Median ENL: {med_enl:.2f}")
-    print(f"  Mean ENL:   {mean_enl:.2f}")
+    print(f"  Median ENL: {med_enl_patch:.2f} (LH Median = {np.median(enls_lh):.2f}, LV Median = {np.median(enls_lv):.2f})")
+    print(f"  Mean ENL:   {float(np.mean(enls_comb)):.2f}")
     print(f"  75th Pct:   {p75:.2f}")
     print(f"  90th Pct:   {p90:.2f}")
-    print(f"  Max ENL:    {float(np.max(all_enls)):.2f}")
-    print(f"  IQR Spread: {iqr:.2f} (Std Dev = {float(np.std(all_enls)):.2f})")
+    print(f"  Max ENL:    {float(np.max(enls_comb)):.2f}")
+    print(f"  IQR Spread: {iqr:.2f} (Std Dev = {float(np.std(enls_comb)):.2f})")
 
-    print("\n[+] Physical Reconciliation of ENL:")
-    print(f"    - Autocorrelation predicts pure speckle ENL of ~{enl_speckle_bound:.2f} looks.")
-    print(f"    - Smooth homogeneous patches reach up to {float(np.max(all_enls)):.2f} looks, closely confirming this upper bound.")
-    print(f"    - Across the full terrain population, the median ENL drops to {med_enl:.2f} because real lunar surfaces")
-    print("      contain intrinsic topographic slope tilt, micro-roughness, and boulder clutter:")
-    print("      Var(I)/<I>^2 = 1/ENL_speckle + CV_texture^2.")
-    print(f"      Intrinsic texture variance CV_texture^2 = {1.0/med_enl - 1.0/enl_speckle_bound:.3f} accounts for > 50% of intensity variance.")
+    # Select conservative ENL
+    conservative_enl = min(med_enl_patch, enl_autocorr_bound)
+    print("\n[+] ENL Reconciliation & Conservative Selection:")
+    print(f"    Method 1 (Autocorrelation bound):  {enl_autocorr_bound:.2f} looks")
+    print(f"    Method 2 (Single-channel patches): {med_enl_patch:.2f} looks (Max = {float(np.max(enls_comb)):.2f} looks)")
+    print(f"    --> Conservative ENL selected:     {conservative_enl:.2f} looks per cell")
 
-    return med_enl, float(np.max(all_enls))
+    return conservative_enl, enl_autocorr_bound
 
 
-def evaluate_dop_windowing_and_ice_pixels(stokes: dict, measured_enl_cell: float):
+def evaluate_dop_windowing_and_runtime_resolution(stokes: dict, n_cell_conservative: float, n_cell_autocorr: float):
     """
-    Computes true effective looks, window sizes needed for 90% acceptance at m <= 0.13,
-    and reports exact pixel counts satisfying CPR > 1.0 and DOP <= 0.13 at each look level.
+    Computes effective looks and window sizes dynamically at runtime from measured ENL.
+    Reports window needed for 90% acceptance at m <= 0.13 and resolution cost in metres.
     """
     print("\n" + "=" * 80)
-    print("   3. DOP WINDOWING, EFFECTIVE LOOKS & UNTUNED ICE-CANDIDATE COUNTS")
+    print("   3. RUNTIME DOP WINDOWING & UNTUNED RADIOMETRIC OUTLIER COUNTS")
     print("=" * 80)
 
-    # Effective looks = measured ENL * number of independent cells
-    eff_level1 = measured_enl_cell
-    eff_level2 = measured_enl_cell * 9.0   # 3x3 window = 9 cells
-    eff_level3 = measured_enl_cell * 25.0  # 5x5 window = 25 cells
+    # Solve for looks needed for 90% acceptance at m <= 0.13
+    target_looks = brentq(lambda n: betainc(1.5, n - 1, 0.13**2) - 0.90, 10, 500)
 
-    print("True Effective Number of Looks (from Measured ENL = 7.6):")
-    print(f"  Level 1: Native Multilooked Cell (1 cell):   True Eff Looks = {eff_level1:.1f} (Nominal 16)")
-    print(f"  Level 2: 3x3 Spatial Boxcar Window (9 cells): True Eff Looks = {eff_level2:.1f} (~68 looks, NOT 136!)")
-    print(f"  Level 3: 5x5 Spatial Boxcar Window (25 cells): True Eff Looks = {eff_level3:.1f} (~190 looks, achieves >= 90% at m <= 0.13)")
+    # Required window under conservative ENL (3.04 looks/cell)
+    cells_needed_cons = int(np.ceil(target_looks / n_cell_conservative))
+    # Smallest odd window size W x W >= cells_needed
+    w_cons = 1
+    while w_cons * w_cons < cells_needed_cons:
+        w_cons += 2
 
-    print("\nResolution Cost Analysis:")
-    print("  - Native Geocoded Grid: 20 m x 20 m (400 m^2 cell area).")
-    print("  - 3x3 Window: Spatial footprint coarsens to 60 m x 60 m (3,600 m^2, 9x area).")
-    print("  - 5x5 Window: Spatial footprint coarsens to 100 m x 100 m (10,000 m^2, 25x area).")
+    # Required window under autocorrelation ENL (4.21 looks/cell)
+    cells_needed_auto = int(np.ceil(target_looks / n_cell_autocorr))
+    w_auto = 1
+    while w_auto * w_auto < cells_needed_auto:
+        w_auto += 2
+
+    print(f"Wishart Null Acceptance Requirement: N_target = {target_looks:.2f} independent looks for 90% at m <= 0.13")
+    print(f"\nRuntime Window Derivation (Native Cell Grid = 20 m x 20 m):")
+    print(f"  Method A (from Conservative Patch ENL = {n_cell_conservative:.2f} looks/cell):")
+    print(f"    - Independent cells needed: ceil({target_looks:.1f} / {n_cell_conservative:.2f}) = {cells_needed_cons} cells")
+    print(f"    - Required Spatial Boxcar Window: {w_cons} x {w_cons} ({w_cons*w_cons} cells)")
+    eff_looks_cons = w_cons * w_cons * n_cell_conservative
+    acc_cons = float(betainc(1.5, eff_looks_cons - 1.0, 0.13**2) * 100.0)
+    print(f"    - True Effective Looks: {eff_looks_cons:.1f} looks (achieves {acc_cons:.1f}% acceptance at m <= 0.13)")
+    print(f"    - Spatial Resolution: {w_cons * 20} m x {w_cons * 20} m ({w_cons*w_cons*400:,} m^2, {w_cons*w_cons}x area coarsening)")
+
+    print(f"\n  Method B (from Autocorrelation Bound = {n_cell_autocorr:.2f} looks/cell):")
+    print(f"    - Independent cells needed: ceil({target_looks:.1f} / {n_cell_autocorr:.2f}) = {cells_needed_auto} cells")
+    print(f"    - Required Spatial Boxcar Window: {w_auto} x {w_auto} ({w_auto*w_auto} cells)")
+    eff_looks_auto = w_auto * w_auto * n_cell_autocorr
+    acc_auto = float(betainc(1.5, eff_looks_auto - 1.0, 0.13**2) * 100.0)
+    print(f"    - True Effective Looks: {eff_looks_auto:.1f} looks (achieves {acc_auto:.1f}% acceptance at m <= 0.13)")
+    print(f"    - Spatial Resolution: {w_auto * 20} m x {w_auto * 20} m ({w_auto*w_auto*400:,} m^2, {w_auto*w_auto}x area coarsening)")
+
+    # 3x3 Window comparison
+    eff_3x3_cons = 9.0 * n_cell_conservative
+    eff_3x3_auto = 9.0 * n_cell_autocorr
+    acc_3x3_cons = float(betainc(1.5, eff_3x3_cons - 1.0, 0.13**2) * 100.0)
+    acc_3x3_auto = float(betainc(1.5, eff_3x3_auto - 1.0, 0.13**2) * 100.0)
+    print(f"\n  3x3 Window Evaluation (9 cells, 60 m x 60 m):")
+    print(f"    - Conservative looks: {eff_3x3_cons:.1f} looks --> {acc_3x3_cons:.1f}% acceptance at m <= 0.13")
+    print(f"    - Autocorrelation looks: {eff_3x3_auto:.1f} looks --> {acc_3x3_auto:.1f}% acceptance at m <= 0.13")
 
     vmask = stokes["valid_mask"] == 1
     s1 = stokes["S1"]
@@ -199,13 +246,12 @@ def evaluate_dop_windowing_and_ice_pixels(stokes: dict, measured_enl_cell: float
     dop_68 = stokes["DOP_eff_68_looks"]
     dop_190 = stokes["DOP_eff_190_looks"]
 
-    # SNR Mask (>= 3 dB above NESZ)
     nesz = 0.009749896
     snr_db = 10.0 * np.log10(np.maximum(s1 / nesz, 1e-6))
     valid_snr = vmask & (snr_db >= 3.0)
     total_valid_snr = int(np.sum(valid_snr))
+    total_valid_raw = int(np.sum(vmask))
 
-    # Evaluate CPR > 1.0 and DOP <= 0.13 without tuning thresholds
     cand_nat = valid_snr & (cpr > 1.0) & (dop_nat <= 0.13)
     cand_68 = valid_snr & (cpr > 1.0) & (dop_68 <= 0.13)
     cand_190 = valid_snr & (cpr > 1.0) & (dop_190 <= 0.13)
@@ -216,29 +262,40 @@ def evaluate_dop_windowing_and_ice_pixels(stokes: dict, measured_enl_cell: float
 
     df_cand = pd.DataFrame([
         {
-            "Processing Level": "Level 1: Native Multilooked Cell",
-            "Effective Looks": f"{eff_level1:.1f}",
-            "Spatial Resolution": "20 m x 20 m",
-            "Valid SNR Pixels (CPR > 1 & DOP <= 0.13)": f"{c_nat:,}",
-            "Fraction of Swath": f"{(c_nat / total_valid_snr) * 100.0:.4f}%"
+            "Window / Processing Level": "Native Cell (1 cell)",
+            "Eff Looks (Cons / Auto)": f"{n_cell_conservative:.1f} / {n_cell_autocorr:.1f}",
+            "Resolution": "20 m x 20 m",
+            "Acceptance (m<=0.13)": f"{float(betainc(1.5, n_cell_conservative-1, 0.13**2))*100:.1f}%",
+            "Valid SNR Pixels (CPR>1 & DOP<=0.13)": f"{c_nat:,}",
+            "Fraction of Valid SNR": f"{(c_nat / total_valid_snr) * 100.0:.4f}%"
         },
         {
-            "Processing Level": "Level 2: 3x3 Window (DOP_eff_68_looks)",
-            "Effective Looks": f"{eff_level2:.1f}",
-            "Spatial Resolution": "60 m x 60 m",
-            "Valid SNR Pixels (CPR > 1 & DOP <= 0.13)": f"{c_68:,}",
-            "Fraction of Swath": f"{(c_68 / total_valid_snr) * 100.0:.4f}%"
+            "Window / Processing Level": "3x3 Window (9 cells)",
+            "Eff Looks (Cons / Auto)": f"{eff_3x3_cons:.1f} / {eff_3x3_auto:.1f}",
+            "Resolution": "60 m x 60 m",
+            "Acceptance (m<=0.13)": f"{acc_3x3_cons:.1f}%",
+            "Valid SNR Pixels (CPR>1 & DOP<=0.13)": f"{c_68:,}",
+            "Fraction of Valid SNR": f"{(c_68 / total_valid_snr) * 100.0:.4f}%"
         },
         {
-            "Processing Level": "Level 3: 5x5 Window (DOP_eff_190_looks)",
-            "Effective Looks": f"{eff_level3:.1f}",
-            "Spatial Resolution": "100 m x 100 m",
-            "Valid SNR Pixels (CPR > 1 & DOP <= 0.13)": f"{c_190:,}",
-            "Fraction of Swath": f"{(c_190 / total_valid_snr) * 100.0:.4f}%"
+            "Window / Processing Level": f"5x5 Window (25 cells)",
+            "Eff Looks (Cons / Auto)": f"{25*n_cell_conservative:.1f} / {25*n_cell_autocorr:.1f}",
+            "Resolution": "100 m x 100 m",
+            "Acceptance (m<=0.13)": f"{float(betainc(1.5, 25*n_cell_conservative-1, 0.13**2))*100:.1f}%",
+            "Valid SNR Pixels (CPR>1 & DOP<=0.13)": f"{c_190:,}",
+            "Fraction of Valid SNR": f"{(c_190 / total_valid_snr) * 100.0:.4f}%"
         }
     ])
-    print("\n--- Valid, SNR-Masked Pixels Satisfying CPR > 1.0 and DOP <= 0.13 (No Threshold Tuning) ---")
+    print("\n--- Valid, SNR-Masked Pixels Satisfying CPR > 1.0 and DOP <= 0.13 ---")
     print(df_cand.to_string(index=False))
+
+    print("\n[!] Spatial Context & Ice Candidate Disclaimer (Directive 4):")
+    print("    - Whole-strip pixel counts satisfying CPR > 1.0 and DOP <= 0.13 are uncontextualized")
+    print("      radiometric outliers, NOT confirmed ice candidates.")
+    print("    - The previous claim that counts 'stabilizing' shows speckle suppression has been removed.")
+    print("    - Definitive ice candidate identification requires spatial context from a registered DEM,")
+    print("      including permanent shadow (PSR), cold-trap surface temperature (<110 K), slope stability,")
+    print("      and local morphological crater context.")
 
 
 def evaluate_nesz_polynomial_and_noise(stokes: dict, label_meta: dict):
@@ -247,7 +304,6 @@ def evaluate_nesz_polynomial_and_noise(stokes: dict, label_meta: dict):
     print("   4. NESZ POLYNOMIAL FROM LABEL & NEAR-NOISE PIXEL STATISTICS")
     print("=" * 80)
 
-    # Extract polynomial coefficients from XML label
     pol_lh = label_meta["channel_cal"]["LH"]
     c0 = float(pol_lh.get("nes0_coeff_0", 9.749896e-03))
     c1 = float(pol_lh.get("nes0_coeff_1", 0.0))
@@ -256,7 +312,7 @@ def evaluate_nesz_polynomial_and_noise(stokes: dict, label_meta: dict):
     print(f"  NESZ(r) = c_0 + c_1 * r")
     print(f"  <isda:nes0_coeff_0> = {c0:.6e} ({10.0 * np.log10(c0):.2f} dB)")
     print(f"  <isda:nes0_coeff_1> = {c1:.6e}")
-    print("  Note: In this product, c_1 = 0.0, so the calibrated noise floor is constant at -20.11 dB.")
+    print("  Note: In this product, c_1 = 0.0, so the calibrated noise floor is constant at -20.11 dB across slant range.")
 
     s1 = stokes["S1"]
     cpr = stokes["CPR"]
@@ -273,10 +329,10 @@ def evaluate_nesz_polynomial_and_noise(stokes: dict, label_meta: dict):
     dop_rel = dop[reliable_mask & ~np.isnan(dop)]
 
     print("\nEmpirical Statistics of Near-Noise vs Reliable Signal Pixels:")
-    print(f"  Near-Noise Pixels (SNR < 3 dB): Count = {len(cpr_near):,} ({(len(cpr_near)/np.sum(vmask))*100:.2f}%)")
+    print(f"  Near-Noise Pixels (SNR < 3 dB): Count = {len(cpr_near):,} ({(len(cpr_near)/np.sum(vmask))*100:.2f}% of valid data)")
     print(f"    Empirical Median CPR = {float(np.median(cpr_near)):.4f}, Mean CPR = {float(np.mean(cpr_near)):.4f}")
     print(f"    Empirical Median DOP = {float(np.median(dop_near)):.4f}, Mean DOP = {float(np.mean(dop_near)):.4f}")
-    print(f"  Reliable Signal Pixels (SNR >= 3 dB): Count = {len(cpr_rel):,} ({(len(cpr_rel)/np.sum(vmask))*100:.2f}%)")
+    print(f"  Reliable Signal Pixels (SNR >= 3 dB): Count = {len(cpr_rel):,} ({(len(cpr_rel)/np.sum(vmask))*100:.2f}% of valid data)")
     print(f"    Empirical Median CPR = {float(np.median(cpr_rel)):.4f}, Mean CPR = {float(np.mean(cpr_rel)):.4f}")
     print(f"    Empirical Median DOP = {float(np.median(dop_rel)):.4f}, Mean DOP = {float(np.mean(dop_rel)):.4f}")
     print("\n[+] Noise Behavior Note:")
@@ -285,7 +341,7 @@ def evaluate_nesz_polynomial_and_noise(stokes: dict, label_meta: dict):
 
 
 def evaluate_slc_gri_common_grid(pds4_dir: Path):
-    """Block-averages SLC and GRI to a common registered grid and re-reports ratio percentiles."""
+    """Block-averages SLC and GRI to a common registered grid and reports ratio percentiles."""
     print("\n" + "=" * 80)
     print("   5. SLC / GRI POWER RATIO: REGISTERED COMMON-GRID BLOCK-AVERAGING")
     print("=" * 80)
@@ -376,13 +432,15 @@ def main():
     print(f"  <isda:polarization> {label_meta['polarizations'][1]} </isda:polarization>")
     print(f"  <isda:imaging_mode> STRIPMAP </isda:imaging_mode>")
     print(f"  <isda:incidence_angle> {label_meta['incidence_angle_deg']} </isda:incidence_angle>")
+    print(f"  <isda:look_direction> {label_meta.get('look_direction', 'LEFT')} </isda:look_direction>")
+    print(f"  <isda:node> {label_meta.get('node', 'DESCENDING')} </isda:node>")
     print("Citations: ISRO SAC DFSAR Product Specification Doc SAC/CH2/DFSAR/DP/1.0 Sec 4.3 and Raney (2007) Sec III.")
 
     # 3. Monte Carlo Proof of Wishart Null Distribution
     run_wishart_monte_carlo(config)
 
-    # 4. Full Unsorted ENL & Autocorrelation
-    med_enl, max_enl = measure_enl_full_patch_distribution(pds4_dir, label_meta)
+    # 4. Single-Channel ENL & Autocorrelation
+    n_cons, n_auto = measure_enl_single_channel_and_autocorr(pds4_dir, label_meta)
 
     # 5. Execute Phase 0 Ingestion
     print("\n" + "=" * 80)
@@ -392,33 +450,45 @@ def main():
     stokes = results["stokes_raw"]
     valid_mask = stokes["valid_mask"] > 0
     total_pix = valid_mask.size
-    valid_pix = int(np.sum(valid_mask))
-    invalid_pix = total_pix - valid_pix
-    valid_pct = (valid_pix / total_pix) * 100.0
-    invalid_pct = (invalid_pix / total_pix) * 100.0
+    valid_raw_pix = int(np.sum(valid_mask))
+    invalid_margin_pix = total_pix - valid_raw_pix
+    valid_pct = (valid_raw_pix / total_pix) * 100.0
+    invalid_pct = (invalid_margin_pix / total_pix) * 100.0
 
-    # 6. DoP Windowing & Untuned Ice Pixels
-    # Use measured homogeneous ENL (~7.6 looks) for windowing
-    evaluate_dop_windowing_and_ice_pixels(stokes, measured_enl_cell=7.6)
+    # 6. Detailed Pixel Breakdown (Directive 8)
+    nesz_floor = 0.009749896
+    snr_db = 10.0 * np.log10(np.maximum(stokes["S1"] / nesz_floor, 1e-6))
+    near_noise_pix = int(np.sum(valid_mask & (snr_db < 3.0)))
+    reliable_signal_pix = int(np.sum(valid_mask & (snr_db >= 3.0)))
 
-    # 7. NESZ Polynomial and Near-Noise Statistics
+    print("\n" + "=" * 80)
+    print("   6. SCENE PIXEL BREAKDOWN: VALID VS SNR-PASSED PIXELS (DIRECTIVE 8)")
+    print("=" * 80)
+    df_pixels = pd.DataFrame([
+        {"Pixel Category": "Total Raster Pixels in Slant Crop", "Count": f"{total_pix:,}", "Percentage": "100.00%"},
+        {"Pixel Category": "Zero-Fill / Invalid Slant Margins", "Count": f"{invalid_margin_pix:,}", "Percentage": f"{invalid_pct:.2f}% of Total Raster"},
+        {"Pixel Category": "Total Valid Raw Lunar Pixels (DN != 0)", "Count": f"{valid_raw_pix:,}", "Percentage": f"{valid_pct:.2f}% of Total Raster"},
+        {"Pixel Category": "Valid & Near-Noise Pixels (SNR < 3 dB)", "Count": f"{near_noise_pix:,}", "Percentage": f"{(near_noise_pix/valid_raw_pix)*100.0:.2f}% of Valid Raw"},
+        {"Pixel Category": "Valid & Reliable Signal Pixels (SNR >= 3 dB)", "Count": f"{reliable_signal_pix:,}", "Percentage": f"{(reliable_signal_pix/valid_raw_pix)*100.0:.2f}% of Valid Raw"}
+    ])
+    print(df_pixels.to_string(index=False))
+
+    # 7. Runtime DoP Windowing & Untuned Outlier Counts
+    evaluate_dop_windowing_and_runtime_resolution(stokes, n_cons, n_auto)
+
+    # 8. NESZ Polynomial and Near-Noise Statistics
     evaluate_nesz_polynomial_and_noise(stokes, label_meta)
 
-    # 8. Common-Grid Registered Ratio
+    # 9. Common-Grid Registered Ratio
     evaluate_slc_gri_common_grid(pds4_dir)
 
-    # 9. Geolocation Uncertainty Derivation
+    # 10. Geolocation Uncertainty without DEM (Directive 5)
     print("\n" + "=" * 80)
-    print("   GEOLOCATION: TIMING OFFSET & TERRAIN RELIEF UNCERTAINTY")
+    print("   GEOLOCATION: TIMING OFFSET & TERRAIN RELIEF UNCERTAINTY (DIRECTIVE 5)")
     print("=" * 80)
     t_err_sec = label_meta["geo_error_time_seconds"]
     t_err_m = label_meta["geo_error_time_meters"]
     rg_err_m = label_meta["geo_error_range_meters"]
-    relief_m = config.pds4_ingestion.default_terrain_relief_m
-    inc_deg = label_meta["incidence_angle_deg"]
-    cot_inc = 1.0 / np.tan(np.radians(inc_deg))
-    terrain_error_m = relief_m * cot_inc
-    total_unc = np.sqrt(terrain_error_m**2 + abs(t_err_m)**2 + rg_err_m**2)
 
     print("Along-Track Timing Offset in XML Label:")
     print(f"  <isda:geo_error_time_seconds>: {t_err_sec} s")
@@ -426,13 +496,29 @@ def main():
     print(f"  <isda:geo_error_range_meters>: {rg_err_m} m")
     print("\nCode Treatment & Uncertainty Budget:")
     print("  - The along-track timing offset (-3115.97 m) is an unvalidated post-processing residual.")
-    print("  - It is NOT applied as a coordinate shift; it is treated as along-track systematic uncertainty.")
-    print(f"  - Configured default terrain relief: Delta_h = {relief_m:.1f} m (from config.yaml).")
-    print(f"  - Horizontal terrain parallax error: Delta_r = Delta_h * cot(theta_inc) = {relief_m:.1f} * {cot_inc:.3f} = {terrain_error_m:.1f} m.")
-    print(f"  - Total Quadrature Geolocation Uncertainty without Registered DEM:")
-    print(f"    sigma_geo = sqrt( ({terrain_error_m:.1f})^2 + ({abs(t_err_m):.1f})^2 + ({rg_err_m:.1f})^2 ) = {total_unc:.2f} m (~{total_unc/1000.0:.2f} km).")
+    print("  - It is NOT applied as an arbitrary coordinate shift.")
+    print("  - LOLA DEM is NOT yet registered.")
+    print("  - GEOLOCATION UNCERTAINTY STATUS: UNKNOWN.")
+    print("    Parallax relief displacement Delta_r = Delta_h * cot(theta_inc) cannot be bounded without")
+    print("    the registered terrain elevation profile. Reporting a hand-assumed 4.38 km is rejected.")
 
-    # 10. Save Dynamic Maps without Hardcoded Strings
+    # 11. Coordinate Containment Check Demonstration (Directive 10)
+    print("\n" + "=" * 80)
+    print("   11. CANDIDATE COORDINATE FOOTPRINT CONTAINMENT (DIRECTIVE 10)")
+    print("=" * 80)
+    geom_csv_path = Path("data/raw/ch2_sar_ncxl_20260403t190328238_d_cp_d18/geometry/calibrated/20260403/ch2_sar_ncxl_20260403t190328238_g_sli_xx_cp_xx_d18.csv")
+    test_coords = [
+        (-86.510862, 83.925179, "Nominal Swath Centre (XML)"),
+        (-87.0, 85.0, "Inside Polar Swath"),
+        (-84.0, 75.0, "Outside Northern Edge"),
+        (-89.0, 90.0, "Near South Pole")
+    ]
+    for lat, lon, desc in test_coords:
+        res = check_coordinate_in_footprint(lat, lon, label_meta, geom_csv_path=geom_csv_path)
+        status_str = "INSIDE" if res["is_inside_footprint"] else "OUTSIDE"
+        print(f"  Coordinate {lat:.4f} deg, {lon:.4f} deg ({desc}): {status_str} (Distance to boundary: {res['distance_to_boundary_m']:.1f} m)")
+
+    # 12. Save Dynamic Maps without Hardcoded Strings
     out_map_dir = Path("outputs/maps")
     out_map_dir.mkdir(parents=True, exist_ok=True)
 
@@ -465,7 +551,6 @@ def main():
 
     # Dynamic CPR / DOP Histograms Plot
     cpr_valid = stokes["CPR"][valid_mask & ~np.isnan(stokes["CPR"])]
-    dop_nat_v = stokes["DOP"][valid_mask & ~np.isnan(stokes["DOP"])]
     dop_68_v = stokes["DOP_eff_68_looks"][valid_mask & ~np.isnan(stokes["DOP_eff_68_looks"])]
     dop_190_v = stokes["DOP_eff_190_looks"][valid_mask & ~np.isnan(stokes["DOP_eff_190_looks"])]
 
@@ -489,21 +574,24 @@ def main():
     ax1.set_ylabel("Probability Density", color="#f8fafc", fontsize=10)
     ax1.legend(facecolor="#1e293b", edgecolor="#475569", labelcolor="#f8fafc", fontsize=9)
 
-    # DOP 68 Looks (3x3 window)
+    eff_3x3_cons = 9.0 * n_cons
+    eff_3x3_auto = 9.0 * n_auto
+
+    # DOP 3x3 Window
     med_dop68 = float(np.median(dop_68_v))
     ax2.hist(dop_68_v, bins=100, range=(0, 1.0), color="#a855f7", edgecolor="#7e22ce", alpha=0.85, density=True)
     ax2.axvline(med_dop68, color="#f59e0b", linestyle="-", linewidth=2.0, label=f"Median DOP = {med_dop68:.3f}")
     ax2.axvline(0.13, color="#ec4899", linestyle="--", linewidth=2.0, label="DOP = 0.13")
-    ax2.set_title("DOP: 3x3 Window (~68 Eff Looks)\n(Valid Lunar Pixels Only)", color="#f8fafc", fontsize=11, fontweight="bold")
+    ax2.set_title(f"DOP: 3x3 Window (9 Cells)\n(Eff Looks: {eff_3x3_cons:.1f} Cons / {eff_3x3_auto:.1f} Auto)", color="#f8fafc", fontsize=11, fontweight="bold")
     ax2.set_xlabel("Degree of Polarization (DOP)", color="#f8fafc", fontsize=10)
     ax2.legend(facecolor="#1e293b", edgecolor="#475569", labelcolor="#f8fafc", fontsize=9)
 
-    # DOP 190 Looks (5x5 window)
+    # DOP 5x5 Window
     med_dop190 = float(np.median(dop_190_v))
     ax3.hist(dop_190_v, bins=100, range=(0, 1.0), color="#10b981", edgecolor="#047857", alpha=0.85, density=True)
     ax3.axvline(med_dop190, color="#f59e0b", linestyle="-", linewidth=2.0, label=f"Median DOP = {med_dop190:.3f}")
     ax3.axvline(0.13, color="#fbbf24", linestyle="--", linewidth=2.0, label="DOP = 0.13 (Ice Criterion)")
-    ax3.set_title("DOP: 5x5 Window (~190 Eff Looks)\n(90% Unpol Acceptance at m <= 0.13)", color="#f8fafc", fontsize=11, fontweight="bold")
+    ax3.set_title(f"DOP: 5x5 Window (25 Cells)\n(Eff Looks: {25*n_cons:.1f} Cons / {25*n_auto:.1f} Auto)", color="#f8fafc", fontsize=11, fontweight="bold")
     ax3.set_xlabel("Degree of Polarization (DOP)", color="#f8fafc", fontsize=10)
     ax3.legend(facecolor="#1e293b", edgecolor="#475569", labelcolor="#f8fafc", fontsize=9)
 
