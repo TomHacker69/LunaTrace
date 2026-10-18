@@ -174,6 +174,45 @@ def test_phase0_stokes_invariants_and_radiometric_calibration(tmp_path: Path):
     assert np.all(cpr >= 0.0)
 
 
+def test_dop_wishart_null_distribution_monte_carlo():
+    """
+    Validates that the 2x2 complex Wishart null distribution for sample Degree of Polarization
+    m follows p(m) proportional to m^2 (1 - m^2)^(N-2) with CDF F(m) = I_{m^2}(1.5, N-1),
+    and disproves the 2D coherence formula 1 - (1 - m^2)^(N-1).
+    Runs with fixed seed and 100,000 trials per look count.
+    """
+    from scipy.special import betainc
+    np.random.seed(42)
+    m_trials = 100000
+    for n_looks in [4, 8, 16, 32]:
+        x = (np.random.standard_normal((m_trials, n_looks)) + 1j * np.random.standard_normal((m_trials, n_looks))) / np.sqrt(2.0)
+        y = (np.random.standard_normal((m_trials, n_looks)) + 1j * np.random.standard_normal((m_trials, n_looks))) / np.sqrt(2.0)
+
+        jxx = np.mean(np.abs(x)**2, axis=1)
+        jyy = np.mean(np.abs(y)**2, axis=1)
+        jxy = np.mean(x * np.conj(y), axis=1)
+
+        s1 = jxx + jyy
+        s2 = jxx - jyy
+        s3 = 2.0 * np.real(jxy)
+        s4 = -2.0 * np.imag(jxy)
+
+        m = np.sqrt(s2**2 + s3**2 + s4**2) / s1
+
+        for threshold in [0.10, 0.13, 0.20, 0.32]:
+            emp_cdf = float(np.mean(m <= threshold))
+            wishart_cdf = float(betainc(1.5, n_looks - 1, threshold**2))
+            old_formula_cdf = float(1.0 - (1.0 - threshold**2)**(n_looks - 1))
+
+            # Wishart CDF matches empirical Monte Carlo within 0.5% (0.005)
+            assert abs(emp_cdf - wishart_cdf) < 0.005, f"Wishart CDF mismatch at N={n_looks}, m={threshold}"
+
+            # At N=16, m=0.13, verify old formula had a massive error (> 10%)
+            if n_looks == 16 and threshold == 0.13:
+                assert abs(old_formula_cdf - emp_cdf) > 0.10, "Old formula should fail significantly"
+
+
+
 # ==============================================================================
 # 3. Dedicated Phase 1 to 6 Unit Tests (Restoring Full Coverage)
 # ==============================================================================

@@ -350,23 +350,37 @@ def multilook_and_compute_stokes(
     # Circular Polarization Ratio on valid pixels with NO ARTIFICIAL CLIPPING
     cpr = np.where(valid_looks & ((s1 + s4) > eps), (s1 - s4) / (s1 + s4), np.nan)
 
-    # High-Look DoP (target ~136 looks)
-    # Applying a 3x3 moving window average over 16-look covariances: 16 * 9 = 144 looks (~136 looks)
-    p_lh_smooth = uniform_filter(np.where(valid_looks, p_lh, 0.0), size=3)
-    p_lv_smooth = uniform_filter(np.where(valid_looks, p_lv, 0.0), size=3)
-    cross_real_smooth = uniform_filter(np.where(valid_looks, np.real(cross), 0.0), size=3)
-    cross_imag_smooth = uniform_filter(np.where(valid_looks, np.imag(cross), 0.0), size=3)
-    count_smooth = uniform_filter(valid_looks.astype(float), size=3)
-    valid_smooth = count_smooth > 0.5
+    # High-Look DoP:
+    # 1. 3x3 window over 16-look cells: 9 * 7.6 = 68.4 effective looks (~68 looks)
+    p_lh_3 = uniform_filter(np.where(valid_looks, p_lh, 0.0), size=3)
+    p_lv_3 = uniform_filter(np.where(valid_looks, p_lv, 0.0), size=3)
+    cross_real_3 = uniform_filter(np.where(valid_looks, np.real(cross), 0.0), size=3)
+    cross_imag_3 = uniform_filter(np.where(valid_looks, np.imag(cross), 0.0), size=3)
+    count_3 = uniform_filter(valid_looks.astype(float), size=3)
+    valid_3 = count_3 > 0.5
 
-    s1_high = (p_lh_smooth + p_lv_smooth) / np.maximum(count_smooth, 1e-6)
-    s2_high = (p_lh_smooth - p_lv_smooth) / np.maximum(count_smooth, 1e-6)
-    s3_high = 2.0 * cross_real_smooth / np.maximum(count_smooth, 1e-6)
-    s4_high = -2.0 * cross_imag_smooth / np.maximum(count_smooth, 1e-6)
+    s1_3 = (p_lh_3 + p_lv_3) / np.maximum(count_3, 1e-6)
+    s2_3 = (p_lh_3 - p_lv_3) / np.maximum(count_3, 1e-6)
+    s3_3 = 2.0 * cross_real_3 / np.maximum(count_3, 1e-6)
+    s4_3 = -2.0 * cross_imag_3 / np.maximum(count_3, 1e-6)
+    pol_3_sq = s2_3 ** 2 + s3_3 ** 2 + s4_3 ** 2
+    dop_68 = np.where(valid_3 & (s1_3 > eps), np.clip(np.sqrt(np.maximum(0.0, pol_3_sq)) / (s1_3 + eps), 0.0, 1.0), np.nan)
 
-    pol_high_sq = s2_high ** 2 + s3_high ** 2 + s4_high ** 2
-    dop_high = np.where(valid_smooth & (s1_high > eps), np.sqrt(np.maximum(0.0, pol_high_sq)) / (s1_high + eps), np.nan)
-    dop_high = np.clip(dop_high, 0.0, 1.0)
+    # 2. 5x5 window over 16-look cells: 25 * 7.6 = 190.0 effective looks (~190 looks)
+    # Required for >= 90% acceptance at m <= 0.13 under 2x2 complex Wishart null distribution
+    p_lh_5 = uniform_filter(np.where(valid_looks, p_lh, 0.0), size=5)
+    p_lv_5 = uniform_filter(np.where(valid_looks, p_lv, 0.0), size=5)
+    cross_real_5 = uniform_filter(np.where(valid_looks, np.real(cross), 0.0), size=5)
+    cross_imag_5 = uniform_filter(np.where(valid_looks, np.imag(cross), 0.0), size=5)
+    count_5 = uniform_filter(valid_looks.astype(float), size=5)
+    valid_5 = count_5 > 0.5
+
+    s1_5 = (p_lh_5 + p_lv_5) / np.maximum(count_5, 1e-6)
+    s2_5 = (p_lh_5 - p_lv_5) / np.maximum(count_5, 1e-6)
+    s3_5 = 2.0 * cross_real_5 / np.maximum(count_5, 1e-6)
+    s4_5 = -2.0 * cross_imag_5 / np.maximum(count_5, 1e-6)
+    pol_5_sq = s2_5 ** 2 + s3_5 ** 2 + s4_5 ** 2
+    dop_190 = np.where(valid_5 & (s1_5 > eps), np.clip(np.sqrt(np.maximum(0.0, pol_5_sq)) / (s1_5 + eps), 0.0, 1.0), np.nan)
 
     # Mask invalid pixels
     s1_out = np.where(valid_looks, s1, np.nan)
@@ -381,8 +395,77 @@ def multilook_and_compute_stokes(
         "S4": s4_out.astype(np.float32),
         "CPR": cpr.astype(np.float32),
         "DOP": dop_16.astype(np.float32),
-        "DOP_136_looks": dop_high.astype(np.float32),
+        "DOP_eff_68_looks": dop_68.astype(np.float32),
+        "DOP_eff_190_looks": dop_190.astype(np.float32),
+        "DOP_136_looks": dop_68.astype(np.float32),  # Backward-compatible alias for 3x3 window
         "valid_mask": valid_looks.astype(np.uint8)
+    }
+
+
+def compute_dem_radar_shadow_and_layover_masks(
+    dem: np.ndarray,
+    pixel_spacing_m: float,
+    incidence_angle_deg: float
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Computes radar shadow and layover binary masks from DEM geometry and incidence angle.
+    - Layover condition: Local terrain slope toward the radar exceeds the radar look/incidence angle.
+    - Shadow condition: Local terrain slope away from the radar exceeds (90 deg - incidence angle).
+    """
+    dy, dx = np.gradient(dem, pixel_spacing_m)
+    slope_rad = np.arctan(np.abs(dx))
+    inc_rad = np.radians(incidence_angle_deg)
+
+    layover_mask = slope_rad > inc_rad
+    shadow_mask = slope_rad > (np.pi / 2.0 - inc_rad)
+    return shadow_mask.astype(np.uint8), layover_mask.astype(np.uint8)
+
+
+def simulate_radar_intensity_from_dem(
+    dem: np.ndarray,
+    pixel_spacing_m: float,
+    incidence_angle_deg: float
+) -> np.ndarray:
+    """
+    Simulates radar backscatter intensity from a registered DEM using local surface normal and incidence angle.
+    Cosine / Muhleman scattering law: I_sim ~ cos(theta_local).
+    """
+    dy, dx = np.gradient(dem, pixel_spacing_m)
+    norm = np.sqrt(dx**2 + dy**2 + 1.0)
+    s_x = np.sin(np.radians(incidence_angle_deg))
+    s_z = -np.cos(np.radians(incidence_angle_deg))
+    cos_theta_local = np.clip((-dx * s_x + 1.0 * s_z) / norm, 0.0, 1.0)
+    return cos_theta_local.astype(np.float32)
+
+
+def cross_correlate_dem_with_sar(
+    dem_sim: np.ndarray,
+    sar_s1: np.ndarray,
+    pixel_spacing_m: float = 20.0
+) -> Dict[str, float]:
+    """
+    Cross-correlates a DEM-simulated radar backscatter image with the real SAR S1 image
+    to estimate the empirical 2D spatial offset (offset_azimuth_m, offset_range_m).
+    """
+    from scipy.signal import correlate2d
+    ny = min(dem_sim.shape[0], sar_s1.shape[0])
+    nx = min(dem_sim.shape[1], sar_s1.shape[1])
+    d_sub = np.nan_to_num(dem_sim[:ny, :nx] - np.nanmean(dem_sim[:ny, :nx]))
+    s_sub = np.nan_to_num(sar_s1[:ny, :nx] - np.nanmean(sar_s1[:ny, :nx]))
+
+    step = max(1, ny // 150)
+    corr = correlate2d(s_sub[::step, ::step], d_sub[::step, ::step], mode="same")
+    y_peak, x_peak = np.unravel_index(np.argmax(corr), corr.shape)
+
+    y_center, x_center = corr.shape[0] // 2, corr.shape[1] // 2
+    offset_y_m = (y_peak - y_center) * step * pixel_spacing_m
+    offset_x_m = (x_peak - x_center) * step * pixel_spacing_m
+    norm_denom = np.linalg.norm(d_sub) * np.linalg.norm(s_sub) + 1e-12
+
+    return {
+        "offset_azimuth_m": float(offset_y_m),
+        "offset_range_m": float(offset_x_m),
+        "max_correlation": float(np.max(corr) / norm_denom)
     }
 
 
@@ -392,7 +475,9 @@ def geocode_stokes_to_crs(
     target_bbox: BoundingBoxConfig,
     target_crs: str,
     target_res_m: float = 20.0,
-    label_meta: Optional[Dict[str, Any]] = None
+    label_meta: Optional[Dict[str, Any]] = None,
+    dem_path: Optional[Path] = None,
+    default_terrain_relief_m: float = 1500.0
 ) -> Tuple[Dict[str, np.ndarray], Affine, Dict[str, float]]:
     """
     Geocodes multilooked Stokes arrays to the target Polar Stereographic CRS (EPSG:3032)
@@ -627,7 +712,8 @@ def run_phase0_ingestion(config: LunaTraceConfig, pds4_dir: Optional[Path] = Non
         target_bbox=config.target_bounding_box,
         target_crs=config.crs.proj4_string,
         target_res_m=config.pds4_ingestion.target_resolution_m,
-        label_meta=label_meta
+        label_meta=label_meta,
+        default_terrain_relief_m=config.pds4_ingestion.default_terrain_relief_m
     )
     print(f"[+] Computed Geolocation Uncertainty: min = {unc_stats['min_m']:.2f} m, median = {unc_stats['median_m']:.2f} m, 90th percentile = {unc_stats['p90_m']:.2f} m, max = {unc_stats['max_m']:.2f} m")
 
@@ -636,7 +722,11 @@ def run_phase0_ingestion(config: LunaTraceConfig, pds4_dir: Optional[Path] = Non
     band_code = label_meta["frequency_band"]
     out_paths: Dict[str, Path] = {}
 
-    for s_name in ["S1", "S2", "S3", "S4", "CPR", "DOP", "DOP_136_looks", "valid_mask", "geolocation_uncertainty_m"]:
+    export_layers = [
+        "S1", "S2", "S3", "S4", "CPR", "DOP", "DOP_eff_68_looks", "DOP_eff_190_looks",
+        "DOP_136_looks", "valid_mask", "geolocation_uncertainty_m"
+    ]
+    for s_name in export_layers:
         fpath = out_dir / f"dfsar_{band_code}_{s_name}.tif"
         save_geotiff(geocoded_stokes[s_name], fpath, transform, crs=config.crs.proj4_string)
         out_paths[s_name] = fpath

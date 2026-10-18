@@ -1,8 +1,8 @@
 {
   "output_file": "map_phase5_rover_traverses.png",
   "output_sha256": "115a94bc0c7909479f292692e60ed7766b6d417e033712f37a80888450f6bbdc",
-  "timestamp_utc": "2026-10-18T19:38:09.202954+00:00",
-  "git_commit": "a149dbe1dfdb198f8686e6bb74433b193783af79",
+  "timestamp_utc": "2026-10-18T20:44:50.677194+00:00",
+  "git_commit": "4084a23b445bfb2c572d95a1fb22197be4876889",
   "software_versions": {
     "python": "3.14.7",
     "numpy": "2.5.3",
@@ -21,10 +21,10 @@
   },
   "config_snapshot": {
     "paths": {
-      "raw_data_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-199\\luna_test_fixtures0\\raw",
-      "processed_data_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-199\\luna_test_fixtures0\\processed",
-      "outputs_maps_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-199\\luna_test_fixtures0\\maps",
-      "outputs_tables_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-199\\luna_test_fixtures0\\tables",
+      "raw_data_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-200\\luna_test_fixtures0\\raw",
+      "processed_data_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-200\\luna_test_fixtures0\\processed",
+      "outputs_maps_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-200\\luna_test_fixtures0\\maps",
+      "outputs_tables_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-200\\luna_test_fixtures0\\tables",
       "provenance_file": "C:\\Users\\Ankit Singh Tomar\\LunaTrace\\LunaTrace\\DATA_PROVENANCE.md"
     },
     "crs": {
@@ -244,7 +244,14 @@
       "azimuth_looks": 8,
       "range_looks": 2,
       "target_resolution_m": 20.0,
-      "geocoding_interpolation": "bilinear"
+      "geocoding_interpolation": "bilinear",
+      "default_terrain_relief_m": 1500.0,
+      "snr_near_noise_threshold_db": 3.0,
+      "monte_carlo_trials": 100000,
+      "monte_carlo_random_seed": 42,
+      "dop_eff_looks_level1": 7.6,
+      "dop_eff_looks_level2": 68.4,
+      "dop_eff_looks_level3": 190.0
     }
   },
   "metadata": {
