@@ -1,0 +1,38 @@
+# LunaTrace Mission Data Provenance Registry
+**Repository:** `TomHacker69/LunaTrace`  
+**Purpose:** Cryptographic and scientific registry of all primary sensor datasets in `data/raw/`.  
+**Strict Policy:** LunaTrace pipeline execution requires that every file in `data/raw/` matches an authorized record below. The pipeline will strictly refuse to execute if unrecorded, corrupt, or unverified files are present in `data/raw/`.
+
+---
+
+## Authorized Primary Mission Datasets
+
+| Dataset Identifier | Instrument / Mission | Product Type | Processing Level | Target Region | Resolution | Coordinate Reference System | Source Agency | Verified SHA-256 Checksum | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `ch2_sar_ncxl_20260403t190328238_d_sli_xx_cp_lh_d18.tif` | DFSAR (Chandrayaan-2) | L-band Slant Range Complex LH | Level-1A / PDS4 Complex | Lunar South Pole (-84.4° to -88.6°, 75.9° to 101.8°E) | 5.09 m x 2.00 m | Slant-range radar coordinates | ISRO / SAC | `eefaf6ba581f7ff05b1bdcf1283de83caad1ca1b04d0b2754e7f0cf1c3c36a02` | **VERIFIED_REAL_INGESTED** |
+| `ch2_sar_ncxl_20260403t190328238_d_sli_xx_cp_lv_d18.tif` | DFSAR (Chandrayaan-2) | L-band Slant Range Complex LV | Level-1A / PDS4 Complex | Lunar South Pole (-84.4° to -88.6°, 75.9° to 101.8°E) | 5.09 m x 2.00 m | Slant-range radar coordinates | ISRO / SAC | `768b565c5522e1dfa9da33fa6041a86f4310d7ce1e6a86daf3d53a2fcc84c5d9` | **VERIFIED_REAL_INGESTED** |
+| `ch2_sar_ncxl_20260403t190328238_d_sli_xx_cp_xx_d18.xml` | DFSAR (Chandrayaan-2) | PDS4 Product XML Label (SLI) | Level-1A / PDS4 Metadata | Lunar South Pole (-84.4° to -88.6°, 75.9° to 101.8°E) | Orbit 29472 | Seleno-centric spherical datum | ISRO / SAC | `092264d149a1416785f269fa231a23d36670335f47e02de9a5e7edce8788241d` | **VERIFIED_REAL_INGESTED** |
+| `ch2_sar_ncxl_20260403t190328238_g_sli_xx_cp_xx_d18.csv` | DFSAR (Chandrayaan-2) | Slant Range Geometry Tie-Points | Level-1A / Geometry Grid | 8289 lines x 38 samples (314,982 records) | Tie-point interval 32x32 | Selenocentric Lat/Lon / Slant-Range | ISRO / SAC | `d781d6569d6cd73c0ea3b0db4ff693ebdb59e6a7df95470ce2d076ddf86a82d5` | **VERIFIED_REAL_INGESTED** |
+| `ch2_sar_ncxl_20260403t190328238_d_gri_in_cp_xx_d18.tif` | DFSAR (Chandrayaan-2) | Ground Range Incidence Angle Map | Level-1B / PDS4 Calibrated | Lunar South Pole (-84.4° to -88.6°, 75.9° to 101.8°E) | 4.0 m x 1.80 m | Ground Range Geometry (deg) | ISRO / SAC | `aed990807faea3ea7928668ddf14a828a27f1df48915a34bf21cfd029415b3d6` | **VERIFIED_REAL_INGESTED** |
+| `ch2_sar_ncxl_20260403t190328238_d_gri_xx_cp_lh_d18.tif` | DFSAR (Chandrayaan-2) | L-band Ground Range LH (Amplitude) | Level-1B / PDS4 Calibrated | Lunar South Pole (-84.4° to -88.6°, 75.9° to 101.8°E) | 4.0 m x 1.80 m | Ground Range Geometry (ISRO PDS4) | ISRO / SAC | `55a625a08a829f0af2f86aceb2623da59743b54d851aba09869cb3123c3e43b4` | **VERIFIED_REAL_INGESTED** |
+| `ch2_sar_ncxl_20260403t190328238_d_gri_xx_cp_lv_d18.tif` | DFSAR (Chandrayaan-2) | L-band Ground Range LV (Amplitude) | Level-1B / PDS4 Calibrated | Lunar South Pole (-84.4° to -88.6°, 75.9° to 101.8°E) | 4.0 m x 1.80 m | Ground Range Geometry (ISRO PDS4) | ISRO / SAC | `ce9a1cad7a55a2e8dd5018597fb6d56aed0030f3fa9ed5063a35925271437932` | **VERIFIED_REAL_INGESTED** |
+| `ch2_sar_ncxl_20260403t190328238_d_gri_xx_cp_xx_d18.xml` | DFSAR (Chandrayaan-2) | PDS4 Product XML Label (GRI) | Level-1B / PDS4 Metadata | Lunar South Pole (-84.4° to -88.6°, 75.9° to 101.8°E) | Orbit 29472 | Seleno-centric spherical datum | ISRO / SAC | `1c22f43811cf2067604f6397dace827686181dac3dccc7e7daf7166c9189d4fd` | **VERIFIED_REAL_INGESTED** |
+| `dfsar_S_S1.tif` | DFSAR (Chandrayaan-2) | S-band Stokes $S_1$ (Intensity) | Level-2 Polarimetric Geocoded | South Pole Overlapping Swath | 20.0 m/px | Polar Stereographic (EPSG:3032, Moon IAU 2000) | ISRO / ISSDC | AWAITING_REAL_INGEST | PENDING_USER_SUPPLY |
+| `dfsar_S_S2.tif` | DFSAR (Chandrayaan-2) | S-band Stokes $S_2$ (Linear Pol) | Level-2 Polarimetric Geocoded | South Pole Overlapping Swath | 20.0 m/px | Polar Stereographic (EPSG:3032, Moon IAU 2000) | ISRO / ISSDC | AWAITING_REAL_INGEST | PENDING_USER_SUPPLY |
+| `dfsar_S_S3.tif` | DFSAR (Chandrayaan-2) | S-band Stokes $S_3$ (Linear Pol 45°) | Level-2 Polarimetric Geocoded | South Pole Overlapping Swath | 20.0 m/px | Polar Stereographic (EPSG:3032, Moon IAU 2000) | ISRO / ISSDC | AWAITING_REAL_INGEST | PENDING_USER_SUPPLY |
+| `dfsar_S_S4.tif` | DFSAR (Chandrayaan-2) | S-band Stokes $S_4$ (Circular Pol) | Level-2 Polarimetric Geocoded | South Pole Overlapping Swath | 20.0 m/px | Polar Stereographic (EPSG:3032, Moon IAU 2000) | ISRO / ISSDC | AWAITING_REAL_INGEST | PENDING_USER_SUPPLY |
+| `lola_dem_20m.tif` | LOLA (Lunar Reconnaissance Orbiter) | Digital Elevation Model (DEM) | PDS GDR Polar Tile | South Polar Quadrangle | 20.0 m/px | Polar Stereographic (EPSG:3032, Moon IAU 2000) | NASA / PDS Geosciences | AWAITING_REAL_INGEST | PENDING_USER_SUPPLY |
+| `ohrc_boulder_density.tif` | OHRC (Chandrayaan-2) | High-Resolution Boulder Density | Level-2 Ortho product | South Polar Landing Corridors | 0.25 m/px | Polar Stereographic (EPSG:3032, Moon IAU 2000) | ISRO / ISSDC | OPTIONAL_NOT_SUPPLIED | UNASSESSED |
+
+---
+
+## Ingestion & Cryptographic Verification Rules
+
+1. **Verification Mechanism:**  
+   Before pipeline Phase 1 executes, `src/validator.py` computes the SHA-256 digest of every input in `data/raw/` and verifies that it is recorded in this registry.
+2. **Missing or Corrupt Data Policy:**  
+   If any required file is missing or contains an unverified hash, the validator raises `RuntimeError("Unverified input dataset in data/raw...")` and aborts execution.
+3. **Quarantine of Synthetic Data:**  
+   Synthetic and benchmark data are quarantined exclusively inside `tests/fixtures/synthetic_crater_generator.py` and are used solely during automated test execution.
+4. **OHRC Boulder Status Handling:**  
+   If `ohrc_boulder_density.tif` is not supplied, the pipeline explicitly marks boulder hazards as `UNASSESSED`, disables boulder scoring terms, and evaluates terrain hazard exclusively via topographic slope and RMS roughness.

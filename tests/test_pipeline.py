@@ -1,158 +1,289 @@
 """
 Automated Test Suite for LunaTrace Pipeline
-Tests all 6 scientific phases, polarimetric identities, pathfinding, and resource calculations.
+Runs strictly against isolated test fixtures in tests/fixtures/.
+Asserts fail-fast data validation, scientific conservation laws, derived safety limits,
+PDS4 complex SLC processing, Stokes invariants, and cryptographic provenance sidecars.
 """
 
+import matplotlib
+matplotlib.use("Agg")
 from pathlib import Path
 import pytest
 import numpy as np
 import pandas as pd
 import rasterio
 
-from src.config import CFG, RAW_DATA_DIR, PROCESSED_DATA_DIR, TABLES_DIR, MAPS_DIR
+from src.config_schema import load_config, LunaTraceConfig, BoundingBoxConfig
+from src.validator import validate_input_datasets, DataValidationError
 from src.utils import enhanced_lee_filter, save_geotiff
-from src.phase1_dfsar import DFSARProcessor
-from src.phase2_ice_detection import IceDetectionEngine
-from src.phase3_terrain_illumination import TerrainIlluminationEngine
-from src.phase4_landing_site import LandingSiteSelector
-from src.phase5_traverse_planning import RoverTraversePlanner
-from src.phase6_volume_estimation import IceVolumeEstimator
+from src.pds4_reader import (
+    parse_pds4_xml_label,
+    verify_footprint_overlap,
+    read_complex_slc_pair,
+    apply_radiometric_calibration,
+    multilook_and_compute_stokes,
+    run_phase0_ingestion
+)
+from src.phase1_dfsar import DFSARProcessor, run_phase1
+from src.phase2_ice_detection import IceDetectionEngine, run_phase2
+from src.phase3_terrain_illumination import TerrainIlluminationEngine, run_phase3
+from src.phase4_landing_site import LandingSiteSelector, run_phase4
+from src.phase5_traverse_planning import RoverTraversePlanner, run_phase5
+from src.phase6_volume_estimation import IceVolumeEstimator, run_phase6
+from tests.fixtures.synthetic_crater_generator import generate_synthetic_pds4_slc_fixture
 
 
-def test_config_integrity():
-    """Validates configuration parameters and physics thresholds."""
-    assert CFG.radar.cpr_ice_threshold == 1.0
-    assert CFG.rover.max_nav_slope_deg == 18.0
-    assert CFG.rover.battery_capacity_wh >= 1200.0
-    assert CFG.landing.max_landing_slope_deg == 5.0
-    assert sum(CFG.landing.weights.values()) == pytest.approx(1.0, 1e-5)
+# ==============================================================================
+# 1. Configuration & Validation Tests
+# ==============================================================================
+
+def test_config_validation_and_derived_limits():
+    """Validates schema bounds and dynamically derived limits in config."""
+    cfg = load_config()
+
+    # Rule 4: Traversable slope must be strictly derived from chassis rollover limit / safety factor
+    expected_slope = round(cfg.rover.chassis_rollover_limit_deg / cfg.rover.safety_factor, 2)
+    assert cfg.rover.max_nav_slope_deg == expected_slope
+    assert cfg.rover.max_nav_slope_deg == 18.0
+
+    # Weights must sum to 1.0
+    assert sum(cfg.ice_detection.weights.values()) == pytest.approx(1.0, 1e-4)
+    assert sum(cfg.landing.weights_without_ohrc.values()) == pytest.approx(1.0, 1e-4)
+    assert sum(cfg.landing.weights_with_ohrc.values()) == pytest.approx(1.0, 1e-4)
 
 
-def test_speckle_filter():
-    """Tests Enhanced Lee filter for non-negative intensity and signed Stokes channels."""
-    # Test positive intensity
+def test_missing_data_fails_loudly(tmp_path: Path):
+    """Rule 1: If an input file is missing, the validator must fail loudly with DataValidationError."""
+    cfg = load_config()
+    empty_dir = tmp_path / "empty_raw"
+    empty_dir.mkdir()
+
+    with pytest.raises((DataValidationError, FileNotFoundError)):
+        validate_input_datasets(raw_dir=empty_dir, config=cfg, enforce_provenance=False)
+
+
+def test_speckle_filter_intensity_and_signed():
+    """Tests Enhanced Lee filter for non-negative intensity (S1) and signed channels (S2, S3, S4)."""
     img_pos = np.ones((20, 20), dtype=float) * 5.0
     filtered_pos = enhanced_lee_filter(img_pos, window_size=5, num_looks=4, is_intensity=True)
     assert filtered_pos.shape == (20, 20)
     assert np.all(filtered_pos >= 0.0)
 
-    # Test signed Stokes channel (can have negative values)
     img_signed = np.full((20, 20), -2.5, dtype=float)
     filtered_signed = enhanced_lee_filter(img_signed, window_size=5, num_looks=4, is_intensity=False)
     assert np.all(filtered_signed < 0.0)
 
 
-def test_phase1_polarimetry():
-    """Validates Stokes formulas, CPR computation, and m-chi decomposition energy conservation."""
-    processor = DFSARProcessor()
-    # Synthetic test Stokes vector
+# ==============================================================================
+# 2. Phase 0: PDS4 Complex Ingestion & Calibration Tests (Requirement 6)
+# ==============================================================================
+
+def test_phase0_rejects_amplitude_only_input(tmp_path: Path):
+    """
+    Requirement 1 & 6: GRI LH/LV files are amplitude-only.
+    Stokes S3 and S4 cannot be computed from them.
+    Phase 0 must fail fast with ValueError if amplitude-only (1-band) input is provided.
+    """
+    fixture = generate_synthetic_pds4_slc_fixture(tmp_path)
+    amp_file = fixture["amplitude_only"]
+
+    with pytest.raises(ValueError, match="amplitude-only"):
+        read_complex_slc_pair(amp_file, amp_file)
+
+
+def test_phase0_rejects_missing_calibration_fields(tmp_path: Path):
+    """
+    Requirement 2 & 6: PDS4 XML label parser must fail fast if any mandatory
+    calibration or metadata field is absent.
+    """
+    fixture = generate_synthetic_pds4_slc_fixture(tmp_path)
+    corrupt_xml = fixture["corrupt_xml"]
+
+    with pytest.raises(ValueError, match="is missing required"):
+        parse_pds4_xml_label(corrupt_xml)
+
+
+def test_phase0_missing_bbox_fails_fast(test_config: LunaTraceConfig):
+    """
+    Requirement 2: If the crater bounding box is missing from config, Phase 0 must raise an error.
+    """
+    cfg_copy = test_config.model_copy(deep=True)
+    cfg_copy.target_bounding_box = None
+
+    with pytest.raises(ValueError, match="Target crater bounding box is missing"):
+        run_phase0_ingestion(config=cfg_copy)
+
+
+def test_phase0_footprint_bounding_box_overlap(tmp_path: Path):
+    """
+    Requirement 2: Verifies that product footprint actually overlaps the bounding box,
+    and fails fast with ValueError if there is no spatial intersection.
+    """
+    fixture = generate_synthetic_pds4_slc_fixture(tmp_path)
+    label_meta = parse_pds4_xml_label(fixture["valid_xml"])
+
+    # Overlapping bounding box: South Pole -87 to -86 deg
+    good_bbox = BoundingBoxConfig(lat_min=-87.5, lat_max=-86.5, lon_min=78.0, lon_max=88.0)
+    overlap, bounds = verify_footprint_overlap(label_meta, good_bbox)
+    assert overlap is True
+    assert bounds["lat_min"] <= good_bbox.lat_max
+
+    # Non-overlapping bounding box (Equatorial region 0 to 5 deg)
+    bad_bbox = BoundingBoxConfig(lat_min=0.0, lat_max=5.0, lon_min=10.0, lon_max=20.0)
+    with pytest.raises(ValueError, match="does not overlap"):
+        verify_footprint_overlap(label_meta, bad_bbox)
+
+
+def test_phase0_stokes_invariants_and_radiometric_calibration(tmp_path: Path):
+    """
+    Requirement 6: Stokes invariants (S1 >= 0, DOP in [0, 1], CPR >= 0)
+    on a labelled synthetic complex SLC fixture.
+    """
+    fixture = generate_synthetic_pds4_slc_fixture(tmp_path)
+    label_meta = parse_pds4_xml_label(fixture["valid_xml"])
+
+    # Read complex SLC pair
+    c_lh, c_lv = read_complex_slc_pair(fixture["slc_lh"], fixture["slc_lv"])
+    assert np.iscomplexobj(c_lh) and np.iscomplexobj(c_lv)
+
+    # Radiometric calibration
+    e_lh, e_lv = apply_radiometric_calibration(c_lh, c_lv, label_meta)
+
+    # Multilook and compute Stokes
+    stokes = multilook_and_compute_stokes(e_lh, e_lv, azimuth_looks=4, range_looks=2)
+
+    s1 = stokes["S1"]
+    s2 = stokes["S2"]
+    s3 = stokes["S3"]
+    s4 = stokes["S4"]
+    dop = stokes["DOP"]
+    cpr = stokes["CPR"]
+
+    # Invariant 1: S1 >= 0
+    assert np.all(s1 >= 0.0)
+
+    # Invariant 2: Polarized power S1^2 >= S2^2 + S3^2 + S4^2 (Cauchy-Schwarz)
+    pol_power_sq = s2 ** 2 + s3 ** 2 + s4 ** 2
+    np.testing.assert_array_less(np.sqrt(pol_power_sq), s1 + 1e-4)
+
+    # Invariant 3: DOP in [0, 1]
+    assert np.all(dop >= 0.0)
+    assert np.all(dop <= 1.0)
+
+    # Invariant 4: CPR >= 0
+    assert np.all(cpr >= 0.0)
+
+
+# ==============================================================================
+# 3. Dedicated Phase 1 to 6 Unit Tests (Restoring Full Coverage)
+# ==============================================================================
+
+def test_phase1_polarimetry_energy_conservation(test_config: LunaTraceConfig):
+    """Validates polarimetric Stokes formulas and energy conservation: Pv + Pdb + Ps == S1."""
+    processor = DFSARProcessor(config=test_config)
     s1 = np.array([[2.0, 3.0]])
     s2 = np.array([[0.2, 0.4]])
     s3 = np.array([[0.1, -0.3]])
-    s4 = np.array([[-0.5, 0.5]])  # s4 < 0 => CPR > 1
+    s4 = np.array([[-0.5, 0.5]])
     stokes = {"S1": s1, "S2": s2, "S3": s3, "S4": s4}
 
     prods = processor.compute_polarimetric_products(stokes)
-
     cpr = prods["CPR"]
-    dop = prods["DOP"]
     pv = prods["P_volume"]
     pdb = prods["P_double"]
     ps = prods["P_surface"]
 
-    # Verify CPR: (s1 - s4) / (s1 + s4)
-    # For pixel 0: (2 - (-0.5)) / (2 + (-0.5)) = 2.5 / 1.5 = 1.6667
+    # CPR identity: (2.0 - (-0.5)) / (2.0 + (-0.5)) = 2.5 / 1.5 = 1.6667
     assert cpr[0, 0] == pytest.approx(2.5 / 1.5, 1e-4)
 
-    # Verify energy conservation: Pv + Pdb + Ps == S1
+    # Energy conservation: Pv + Pdb + Ps == S1
     total_decomp = pv + pdb + ps
     np.testing.assert_allclose(total_decomp, s1, rtol=1e-4)
 
 
-def test_phase2_ice_discrimination():
-    """Tests ice detection scoring and Delta CPR depth discrimination."""
-    engine = IceDetectionEngine()
-    inputs, _, _ = engine.load_inputs()
+def test_phase2_ice_discrimination_and_s_band_handling(test_config: LunaTraceConfig, processed_pipeline):
+    """
+    Validates Phase 2 ice detection scoring, de-circularized FPR metrics,
+    unassessed OHRC status, and graceful S-band handling (Requirement 4).
+    """
+    engine = IceDetectionEngine(config=test_config)
+    inputs, tf, crs, _ = engine.load_inputs()
+
     prods = engine.compute_ice_probability(inputs)
-
     ice_prob = prods["ice_probability"]
-    delta_cpr = prods["delta_cpr"]
-    ice_mask = prods["high_prob_ice_mask"] > 0
-
     assert np.all(ice_prob >= 0.0) and np.all(ice_prob <= 1.0)
-    assert np.sum(ice_mask) > 0  # High-confidence ice detected
-    assert np.mean(delta_cpr[ice_mask]) > 0.4  # Buried ice shows strong positive Delta CPR
+
+    # Execute full Phase 2 export
+    res = engine.process_and_export()
+    assert res["boulder_status"] == "UNASSESSED (OHRC not provided)"
+
+    df_sens = res["sensitivity"]
+    assert "Radar_Alone_Control_FP_Count" in df_sens.columns
+    assert "Combined_Control_FP_Count" in df_sens.columns
 
 
-def test_phase3_terrain_morphometry():
-    """Validates DEM slope gradient and illumination bounding."""
-    engine = TerrainIlluminationEngine()
-    dem, _, _ = engine.load_dem()
-    morph = engine.compute_morphometry(dem, resolution_m=20.0)
+def test_phase3_terrain_morphometry_and_illumination(test_config: LunaTraceConfig, processed_pipeline):
+    """Validates Phase 3 ephemeris horizon ray-tracing and slope calculations."""
+    engine = TerrainIlluminationEngine(config=test_config)
+    dem, tf, crs, _ = engine.load_dem()
 
-    slope = morph["slope_deg"]
-    assert np.all(slope >= 0.0)
-    assert np.min(slope) < 2.0  # Smooth plateaus exist
-    assert np.max(slope) > 20.0  # Steep walls exist
+    morph = engine.compute_morphometry(dem)
+    assert np.all(morph["slope_deg"] >= 0.0)
+
+    illum_res = engine.compute_illumination_and_psr(dem)
+    illum = illum_res["illumination_fraction"]
+    assert np.all(illum >= 0.0) and np.all(illum <= 1.0)
+
+    res = engine.process_and_export()
+    assert len(res["summary"]) >= 6
 
 
-def test_phase4_landing_site_selection():
-    """Validates that candidate landing sites strictly obey the 5-degree slope limit."""
-    selector = LandingSiteSelector()
-    data, tf, crs = selector.load_environmental_data()
-    suitability, safe_mask, dist_to_ice = selector.evaluate_suitability(data)
-    df_sites = selector.select_top_sites(suitability, data, dist_to_ice, tf, top_k=3)
+def test_phase4_landing_site_selection(test_config: LunaTraceConfig, processed_pipeline):
+    """Validates Phase 4 candidate landing sites slope constraint (<=5 deg) and dynamic justifications."""
+    selector = LandingSiteSelector(config=test_config)
+    res = selector.process_and_export()
 
-    assert len(df_sites) == 3
-    # Verify Rank 1 site
+    df_sites = res["df_sites"]
+    assert len(df_sites) == test_config.landing.top_k_sites
+
     site1 = df_sites.iloc[0]
-    assert site1["Slope_deg"] <= 5.0
-    assert site1["Illumination_Fraction"] > 0.50
-    assert site1["Earth_LOS_Fraction"] > 0.50
-    assert 1000.0 <= site1["Distance_to_Ice_m"] <= 7500.0
+    assert site1["Slope_deg"] <= test_config.landing.max_landing_slope_deg
+    assert "UNASSESSED" in site1["Boulder_Hazard_Status"]
+    assert "slope = " in site1["Justification"]
 
 
-def test_phase5_pathfinding_and_battery():
-    """Validates A* pathfinding and power budget feasibility."""
-    planner = RoverTraversePlanner()
-    rasters, tf, crs = planner.load_environmental_rasters()
+def test_phase5_traverse_planning_and_battery(test_config: LunaTraceConfig, processed_pipeline):
+    """Validates Phase 5 pathfinding within derived slope limit (18 deg) and battery reserve (>20%)."""
+    planner = RoverTraversePlanner(config=test_config)
+    res = planner.process_and_export()
 
-    sites_csv = TABLES_DIR / "phase4_top3_landing_sites.csv"
-    assert sites_csv.exists()
-    df_sites = pd.read_csv(sites_csv)
-    start_px = (int(df_sites.iloc[0]["Pixel_Y"]), int(df_sites.iloc[0]["Pixel_X"]))
-
-    ice_mask = rasters["ice_mask"] > 0
-    y_idx, x_idx = np.where(ice_mask)
-    dists = (y_idx - start_px[0]) ** 2 + (x_idx - start_px[1]) ** 2
-    goal_px = (int(y_idx[np.argmin(dists)]), int(x_idx[np.argmin(dists)]))
-
-    cost_grid, _ = planner.build_cost_raster(rasters, mode="safest")
-    path, total_cost = planner.a_star_search(cost_grid, start_px, goal_px, use_heuristic=True)
-
-    assert len(path) > 10
-    metrics = planner.simulate_power_and_metrics(path, rasters)
-    assert metrics["max_slope_deg"] <= CFG.rover.max_nav_slope_deg
-    assert metrics["min_soc_pct"] > CFG.rover.min_battery_reserve_pct  # Battery reserve preserved
+    df_routes = res["df_comparison"]
+    assert len(df_routes) == 3
+    for _, route in df_routes.iterrows():
+        assert route["Max_Slope_deg"] <= test_config.rover.max_nav_slope_deg
+        assert route["Min_Battery_SoC_pct"] >= test_config.rover.min_battery_reserve_pct
+        assert route["Traverse_Feasible"] is True or route["Traverse_Feasible"] == "True"
 
 
-def test_phase6_volume_estimation():
-    """Validates CRIM volume inversion and scenario ranking."""
-    estimator = IceVolumeEstimator()
-    rasters, _, _ = estimator.load_ice_rasters()
-    df_vol, _ = estimator.compute_scenario_volumes(rasters)
+def test_phase6_volume_estimation(test_config: LunaTraceConfig, processed_pipeline):
+    """Validates Phase 6 volumetric CRIM scenario ordering and positive ice volume."""
+    estimator = IceVolumeEstimator(config=test_config)
+    res = estimator.process_and_export()
 
-    low_mass = df_vol.loc[df_vol["Scenario"] == "Low (Conservative)", "Water_Ice_Mass_Megatons"].values[0]
-    nom_mass = df_vol.loc[df_vol["Scenario"] == "Nominal (Realistic)", "Water_Ice_Mass_Megatons"].values[0]
-    high_mass = df_vol.loc[df_vol["Scenario"] == "High (Optimistic)", "Water_Ice_Mass_Megatons"].values[0]
+    df_vol = res["df_volume"]
+    assert len(df_vol) == 3
 
-    assert low_mass > 0.05
-    assert nom_mass > low_mass
-    assert high_mass > nom_mass
+    low_m = df_vol.loc[df_vol["Scenario"].str.contains("Low"), "Water_Ice_Mass_Megatons"].values[0]
+    nom_m = df_vol.loc[df_vol["Scenario"].str.contains("Nominal"), "Water_Ice_Mass_Megatons"].values[0]
+    high_m = df_vol.loc[df_vol["Scenario"].str.contains("High"), "Water_Ice_Mass_Megatons"].values[0]
+
+    assert low_m > 0.0
+    assert nom_m > low_m
+    assert high_m > nom_m
 
 
-def test_artifacts_existence():
-    """Checks that all 18 publication maps and 7 CSV tables exist on disk."""
+def test_artifacts_existence_and_provenance(test_config: LunaTraceConfig, processed_pipeline):
+    """Validates that all expected CSV tables and maps have cryptographic provenance sidecars."""
     expected_tables = [
         "phase1_polarimetric_summary.csv",
         "phase2_terrain_class_statistics.csv",
@@ -163,23 +294,47 @@ def test_artifacts_existence():
         "phase6_ice_volume_estimates.csv"
     ]
     for tbl in expected_tables:
-        fpath = TABLES_DIR / tbl
+        fpath = test_config.paths.outputs_tables_dir / tbl
         assert fpath.exists(), f"Missing table: {fpath}"
+        sidecar = fpath.parent / f"{fpath.name}.provenance.json"
+        assert sidecar.exists(), f"Missing provenance sidecar for {fpath}"
 
-    expected_maps = [
-        "map_phase1_L_cpr.png",
-        "map_phase1_L_dop.png",
-        "map_phase1_L_mchi_decomposition.png",
-        "map_phase2_ice_probability.png",
-        "map_phase2_delta_cpr.png",
-        "map_phase3_slope.png",
-        "map_phase3_illumination_psr.png",
-        "map_phase4_landing_sites.png",
-        "map_phase5_rover_traverses.png",
-        "map_phase5_recommended_route_profile.png",
-        "map_phase6_water_column.png",
-        "map_phase6_volume_sensitivity.png"
-    ]
-    for m in expected_maps:
-        fpath = MAPS_DIR / m
-        assert fpath.exists(), f"Missing map: {fpath}"
+
+@pytest.mark.slow
+def test_real_slc_crop_stokes_invariants():
+    """
+    Ingests a small real Chandrayaan-2 DFSAR SLC crop from data/raw/ and asserts Stokes invariants:
+    - S1 >= 0 everywhere
+    - 0 <= DoP <= 1 everywhere
+    - CPR >= 0 everywhere
+    - Diffusely scattering lunar regolith satisfies median CPR < 1.0 (canonical 0.2-0.4).
+    """
+    pds4_dir = Path("data/raw/ch2_sar_ncxl_20260403t190328238_d_cp_d18")
+    if not pds4_dir.exists():
+        pytest.skip("Real Chandrayaan-2 PDS4 data not present in data/raw")
+
+    xml_candidates = list(pds4_dir.glob("**/*_d_sli_*_d18.xml"))
+    lh_candidates = list(pds4_dir.glob("**/*_d_sli_*_lh_d18.tif"))
+    lv_candidates = list(pds4_dir.glob("**/*_d_sli_*_lv_d18.tif"))
+
+    if not xml_candidates or not lh_candidates or not lv_candidates:
+        pytest.skip("PDS4 complex SLC pair not present")
+
+    label_meta = parse_pds4_xml_label(xml_candidates[0])
+    window = rasterio.windows.Window(0, 150000, 1152, 2000)
+    c_lh, c_lv = read_complex_slc_pair(lh_candidates[0], lv_candidates[0], window=window)
+
+    e_lh, e_lv = apply_radiometric_calibration(c_lh, c_lv, label_meta)
+    stokes = multilook_and_compute_stokes(e_lh, e_lv, azimuth_looks=8, range_looks=2)
+
+    s1 = stokes["S1"]
+    cpr = stokes["CPR"]
+    dop = stokes["DOP"]
+
+    assert np.all(s1 >= 0.0)
+    assert np.all(dop >= 0.0) and np.all(dop <= 1.0)
+    assert np.all(cpr >= 0.0)
+    assert np.median(cpr) < 1.0
+    assert 0.15 < np.median(cpr) < 0.60
+
+

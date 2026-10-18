@@ -1,18 +1,21 @@
 """
 Phase 3: Terrain and Illumination Analysis
-Derives slope, aspect, RMS roughness, horizon-based illumination modeling,
+Derives slope, aspect, RMS roughness, horizon-based solar illumination modeling,
 permanently shadowed regions (PSRs), doubly shadowed zones, and Earth line-of-sight visibility.
 """
 
 from pathlib import Path
-from typing import Dict, Tuple, Any
+from typing import Dict, Tuple, Any, List, Optional
 import numpy as np
 import pandas as pd
-from scipy.ndimage import uniform_filter, generic_filter
+from scipy.ndimage import uniform_filter
 import rasterio
 
-from src.config import CFG, RAW_DATA_DIR, PROCESSED_DATA_DIR, TABLES_DIR, MAPS_DIR
+from src.config import CFG
+from src.config_schema import LunaTraceConfig
+from src.constants import LUNAR_KM_PER_DEG_LAT
 from src.utils import save_geotiff, plot_cartographic_map
+from src.provenance import write_provenance_sidecar
 
 
 class TerrainIlluminationEngine:
@@ -21,33 +24,43 @@ class TerrainIlluminationEngine:
     Processes LOLA DEMs and computes terrain metrics and solar/Earth illumination regimes.
     """
 
-    def __init__(self, config=CFG):
+    def __init__(self, config: LunaTraceConfig = CFG):
         self.cfg = config
         self.terrain_cfg = config.terrain
+        self.illum_cfg = config.illumination
         self.landing_cfg = config.landing
         self.rover_cfg = config.rover
+        self.raw_dir = config.paths.raw_data_dir
+        self.processed_dir = config.paths.processed_data_dir
+        self.tables_dir = config.paths.outputs_tables_dir
+        self.maps_dir = config.paths.outputs_maps_dir
 
-    def load_dem(self) -> Tuple[np.ndarray, rasterio.Affine, str]:
+    def load_dem(self) -> Tuple[np.ndarray, rasterio.Affine, str, Path]:
         """Loads LOLA DEM raster."""
-        dem_path = RAW_DATA_DIR / "lola_dem_20m.tif"
+        dem_path = self.raw_dir / "lola_dem_20m.tif"
         if not dem_path.exists():
-            raise FileNotFoundError(f"Missing DEM file: {dem_path}")
+            raise FileNotFoundError(f"Missing required DEM file: {dem_path}")
 
         with rasterio.open(dem_path) as src:
+            if not src.crs:
+                raise ValueError(f"DEM raster {dem_path} has no CRS defined in metadata!")
             dem = src.read(1).astype(np.float64)
             transform = src.transform
-            crs = src.crs.to_string() if src.crs else self.terrain_cfg.projection_proj4
+            crs = src.crs.to_string()
 
-        return dem, transform, crs
+        return dem, transform, crs, dem_path
 
     def compute_morphometry(
         self,
         dem: np.ndarray,
-        resolution_m: float = 20.0
+        resolution_m: Optional[float] = None
     ) -> Dict[str, np.ndarray]:
         """
         Derives slope (degrees), aspect (azimuth 0-360 deg), and RMS topographic roughness.
         """
+        if resolution_m is None:
+            resolution_m = self.terrain_cfg.grid_resolution_m
+
         dy, dx = np.gradient(dem, resolution_m, resolution_m)
         slope_rad = np.arctan(np.sqrt(dx ** 2 + dy ** 2))
         slope_deg = np.degrees(slope_rad)
@@ -61,7 +74,7 @@ class TerrainIlluminationEngine:
         mean_sq_elev = uniform_filter(dem ** 2, size=self.terrain_cfg.rms_window_size)
         rms_roughness = np.sqrt(np.maximum(mean_sq_elev - mean_elev ** 2, 0.0))
 
-        # Topographic Curvature (Laplacian: second derivative for convex rims / concave bowls)
+        # Topographic Curvature (Laplacian)
         d2y, _ = np.gradient(dy, resolution_m, resolution_m)
         _, d2x = np.gradient(dx, resolution_m, resolution_m)
         curvature = d2x + d2y
@@ -76,31 +89,23 @@ class TerrainIlluminationEngine:
     def compute_illumination_and_psr(
         self,
         dem: np.ndarray,
-        resolution_m: float = None
+        resolution_m: Optional[float] = None
     ) -> Dict[str, np.ndarray]:
         """
-        Simulates lunar South Pole solar illumination using azimuthal horizon ray-tracing.
-        Models grazing solar elevation angles over the lunar precession cycle.
-        Identifies Permanently Shadowed Regions (PSRs) and Doubly Shadowed Core Zones.
+        Simulates lunar South Pole solar illumination using a multi-angle horizon ray-tracing model.
+        Samples azimuthal directions (e.g. 72 azimuths) across solar elevation ranges over the lunar cycle.
+        Illumination fraction is purely computed from terrain line-of-sight without artificial capping.
         """
         if resolution_m is None:
             resolution_m = self.terrain_cfg.grid_resolution_m
 
         ny, nx = dem.shape
-        half_w = (nx * resolution_m) / 2.0
-        x = np.linspace(-half_w, half_w, nx)
-        y = np.linspace(half_w, -half_w, ny)
-        xx, yy = np.meshgrid(x, y)
-        r = np.sqrt(xx ** 2 + yy ** 2)
-
-        # Multi-angle horizon profiling across azimuth directions
-        num_azimuths = self.terrain_cfg.num_horizon_azimuths
+        num_azimuths = self.illum_cfg.azimuth_count
         azimuth_angles = np.linspace(0, 2 * np.pi, num_azimuths, endpoint=False)
         horizon_elevations = np.zeros((num_azimuths, ny, nx), dtype=np.float32)
 
-        # Ray-march radially outward to determine topographic horizon angle
-        step_distances = np.array(self.terrain_cfg.ray_step_distances_m, dtype=float)
-        
+        step_distances = np.array(self.illum_cfg.ray_step_distances_m, dtype=float)
+
         for i, az in enumerate(azimuth_angles):
             dx_step = np.cos(az)
             dy_step = np.sin(az)
@@ -110,7 +115,6 @@ class TerrainIlluminationEngine:
                 px_offset = int(np.round((dist * dx_step) / resolution_m))
                 py_offset = int(np.round((dist * dy_step) / resolution_m))
 
-                # Shifted terrain grid
                 dem_shifted = np.roll(np.roll(dem, py_offset, axis=0), px_offset, axis=1)
                 elev_diff = dem_shifted - dem
                 tan_angle = elev_diff / dist
@@ -118,68 +122,79 @@ class TerrainIlluminationEngine:
 
             horizon_elevations[i] = np.degrees(np.arctan(np.maximum(max_tan_angle, -1.0)))
 
-        # Average illumination fraction: percentage of azimuths where the horizon is below grazing sun
-        unobstructed = horizon_elevations < self.terrain_cfg.solar_elevation_grazing_deg
-        illumination_fraction = np.mean(unobstructed.astype(float), axis=0)
+        # Solar elevation range over lunar precession cycle
+        solar_elevations = np.linspace(
+            self.illum_cfg.solar_elevation_min_deg,
+            self.illum_cfg.solar_elevation_max_deg,
+            self.illum_cfg.solar_elevation_steps
+        )
 
-        # Crater floor masking: deep depressions surrounded by high rims receive zero direct light
-        crater_mask = dem < self.terrain_cfg.crater_depression_threshold_m
-        illumination_fraction[crater_mask] = np.clip(illumination_fraction[crater_mask] * 0.1, 0.0, 1.0)
-        illumination_fraction[dem < self.terrain_cfg.deep_floor_shadow_threshold_m] = 0.0  # Deep floor is totally dark
+        # Average unobstructed fraction across all sampled solar elevations and azimuth angles
+        total_evaluations = len(solar_elevations) * num_azimuths
+        illum_accumulator = np.zeros((ny, nx), dtype=np.float64)
 
-        # Permanently Shadowed Region (PSR): Illumination fraction is strictly below cutoff
-        psr_mask = illumination_fraction < self.terrain_cfg.psr_illumination_cutoff
+        for s_elev in solar_elevations:
+            unobstructed = (horizon_elevations < s_elev).astype(float)
+            illum_accumulator += np.sum(unobstructed, axis=0)
+
+        illumination_fraction = (illum_accumulator / total_evaluations).astype(np.float32)
+
+        # Floor regions below deep shadow threshold receive zero direct sunlight
+        illumination_fraction[dem < self.illum_cfg.deep_floor_shadow_threshold_m] = 0.0
+
+        # Permanently Shadowed Region (PSR): strict illumination cutoff
+        psr_mask = (illumination_fraction < self.illum_cfg.psr_illumination_cutoff).astype(np.uint8)
 
         # Sky-View Factor (SVF): Fraction of visible celestial hemisphere (0 to 1)
         mean_horizon_rad = np.radians(np.clip(np.mean(horizon_elevations, axis=0), 0.0, 89.0))
-        sky_view_factor = np.clip(np.cos(mean_horizon_rad) ** 2, 0.0, 1.0)
+        sky_view_factor = np.clip(np.cos(mean_horizon_rad) ** 2, 0.0, 1.0).astype(np.float32)
 
-        # Doubly Shadowed Zones: Deepest interior floor
-        doubly_shadowed = psr_mask & (sky_view_factor < self.terrain_cfg.sky_view_factor_cutoff) & (dem < self.terrain_cfg.deep_floor_shadow_threshold_m)
+        # Doubly Shadowed Zones: Deepest interior floor with minimal secondary scatter
+        doubly_shadowed = (
+            (psr_mask > 0) &
+            (sky_view_factor < self.illum_cfg.sky_view_factor_cutoff) &
+            (dem < self.illum_cfg.deep_floor_shadow_threshold_m)
+        ).astype(np.uint8)
 
         return {
-            "illumination_fraction": illumination_fraction.astype(np.float32),
-            "psr_mask": psr_mask.astype(np.uint8),
-            "sky_view_factor": sky_view_factor.astype(np.float32),
-            "doubly_shadowed": doubly_shadowed.astype(np.uint8)
+            "illumination_fraction": illumination_fraction,
+            "psr_mask": psr_mask,
+            "sky_view_factor": sky_view_factor,
+            "doubly_shadowed": doubly_shadowed
         }
 
     def compute_earth_visibility(
         self,
         dem: np.ndarray,
-        resolution_m: float = None
+        resolution_m: Optional[float] = None
     ) -> np.ndarray:
         """
         Computes Earth Line-of-Sight (LOS) visibility fraction over the lunar libration cycle.
-        From the lunar south pole, Earth oscillates between 0 deg and ~7 deg above the northern horizon.
         """
         if resolution_m is None:
             resolution_m = self.terrain_cfg.grid_resolution_m
 
-        ny, nx = dem.shape
-        # Northern horizon ray casting (towards +Y direction, azimuth ~ 0 deg)
-        step_distances = np.array(self.terrain_cfg.earth_ray_distances_m, dtype=float)
+        step_distances = np.array(self.illum_cfg.earth_ray_distances_m, dtype=float)
         max_north_tan = np.full_like(dem, -999.0)
 
         for dist in step_distances:
             py_offset = int(np.round(dist / resolution_m))
-            dem_shifted = np.roll(dem, -py_offset, axis=0)  # Looking North (+Y)
+            dem_shifted = np.roll(dem, -py_offset, axis=0)
             elev_diff = dem_shifted - dem
             max_north_tan = np.maximum(max_north_tan, elev_diff / dist)
 
         north_horizon_deg = np.degrees(np.arctan(np.maximum(max_north_tan, -1.0)))
 
-        # Earth libration model
-        earth_elevation_mean = self.terrain_cfg.earth_elevation_mean_deg
+        earth_elevation_mean = self.illum_cfg.earth_elevation_mean_deg
         earth_los = np.clip((earth_elevation_mean - north_horizon_deg) / earth_elevation_mean, 0.0, 1.0)
-        # Crater bowl floor has zero line of sight to Earth due to tall northern crater walls
-        earth_los[dem < self.terrain_cfg.crater_depression_threshold_m] = 0.0
+        earth_los[dem < self.illum_cfg.deep_floor_shadow_threshold_m] = 0.0
 
         return earth_los.astype(np.float32)
 
     def process_and_export(self) -> Dict[str, Any]:
         """Runs Phase 3 processing, exports GeoTIFFs, cartographic maps, and summary statistics."""
-        dem, transform, crs = self.load_dem()
+        dem, transform, crs, dem_path = self.load_dem()
+        input_paths = [dem_path]
 
         # 1. Morphometry
         morph = self.compute_morphometry(dem, resolution_m=self.terrain_cfg.grid_resolution_m)
@@ -197,14 +212,21 @@ class TerrainIlluminationEngine:
         # 3. Earth Visibility
         earth_los = self.compute_earth_visibility(dem, resolution_m=self.terrain_cfg.grid_resolution_m)
 
-        # Save Rasters
-        save_geotiff(slope, PROCESSED_DATA_DIR / "terrain_slope_deg.tif", transform, crs=crs)
-        save_geotiff(aspect, PROCESSED_DATA_DIR / "terrain_aspect_deg.tif", transform, crs=crs)
-        save_geotiff(roughness, PROCESSED_DATA_DIR / "terrain_rms_roughness_m.tif", transform, crs=crs)
-        save_geotiff(illum, PROCESSED_DATA_DIR / "terrain_illumination_fraction.tif", transform, crs=crs)
-        save_geotiff(psr, PROCESSED_DATA_DIR / "terrain_psr_mask.tif", transform, crs=crs)
-        save_geotiff(doubly_shadowed, PROCESSED_DATA_DIR / "terrain_doubly_shadowed_mask.tif", transform, crs=crs)
-        save_geotiff(earth_los, PROCESSED_DATA_DIR / "terrain_earth_los_visibility.tif", transform, crs=crs)
+        # Save Rasters with Provenance Sidecars
+        raster_outputs = {
+            "terrain_slope_deg.tif": slope,
+            "terrain_aspect_deg.tif": aspect,
+            "terrain_rms_roughness_m.tif": roughness,
+            "terrain_illumination_fraction.tif": illum,
+            "terrain_psr_mask.tif": psr,
+            "terrain_doubly_shadowed_mask.tif": doubly_shadowed,
+            "terrain_earth_los_visibility.tif": earth_los
+        }
+
+        for fname, arr in raster_outputs.items():
+            out_p = self.processed_dir / fname
+            save_geotiff(arr, out_p, transform, crs=crs)
+            write_provenance_sidecar(out_p, input_paths, self.cfg.model_dump(), {"raster": fname})
 
         # Cartographic Map 1: Topographic Slope with Critical 5 deg & 15 deg Contours
         map_slope = plot_cartographic_map(
@@ -213,11 +235,12 @@ class TerrainIlluminationEngine:
             output_filename="map_phase3_slope.png",
             cmap="magma",
             vmin=0.0,
-            vmax=self.terrain_cfg.max_regional_slope_plot,
+            vmax=self.cfg.visualization.max_regional_slope_plot,
             cbar_label="Slope (Degrees)",
             overlay_contour=slope,
             contour_levels=self.terrain_cfg.slope_contour_levels
         )
+        write_provenance_sidecar(map_slope, input_paths, self.cfg.model_dump(), {"map": "slope"})
 
         # Cartographic Map 2: Solar Illumination Fraction & PSR Outlines
         map_illum = plot_cartographic_map(
@@ -231,8 +254,9 @@ class TerrainIlluminationEngine:
             overlay_contour=dem,
             contour_levels=self.terrain_cfg.contour_levels
         )
+        write_provenance_sidecar(map_illum, input_paths, self.cfg.model_dump(), {"map": "illumination"})
 
-        # Cartographic Map 3: Earth Line-of-Sight Visibility for Direct Communications
+        # Cartographic Map 3: Earth Line-of-Sight Visibility
         map_earth = plot_cartographic_map(
             data=earth_los,
             title="Earth Direct Line-of-Sight Visibility (Lunar Libration Cycle)",
@@ -242,17 +266,19 @@ class TerrainIlluminationEngine:
             vmax=1.0,
             cbar_label="Earth LOS Visibility Fraction (0 = Occluded, 1 = Continuous Comms)"
         )
+        write_provenance_sidecar(map_earth, input_paths, self.cfg.model_dump(), {"map": "earth_los"})
 
         # Cartographic Map 4: Doubly Shadowed Core Cold-Trap Map
         import matplotlib.pyplot as plt
         from matplotlib.colors import ListedColormap
-        fig, ax = plt.subplots(figsize=(9, 8), dpi=300)
-        # 0: Sunlit/Intermittent, 1: Singly Shadowed PSR, 2: Doubly Shadowed Core
+        from matplotlib.patches import Patch
+
+        fig, ax = plt.subplots(figsize=(9, 8), dpi=self.cfg.visualization.dpi)
         shadow_zones = np.zeros_like(psr, dtype=np.uint8)
         shadow_zones[psr > 0] = 1
         shadow_zones[doubly_shadowed > 0] = 2
 
-        zone_cmap = ListedColormap(["#dcdcdc", "#3182bd", "#081d58"])  # Light gray, medium blue, dark navy
+        zone_cmap = ListedColormap(["#dcdcdc", "#3182bd", "#081d58"])
         ext = self.terrain_cfg.extent_km
         ax.imshow(shadow_zones, extent=[-ext, ext, -ext, ext], origin="upper", cmap=zone_cmap)
         ax.set_title("Permanently Shadowed Regions (PSR) & Doubly Shadowed Zones", fontsize=12, fontweight="bold")
@@ -260,17 +286,17 @@ class TerrainIlluminationEngine:
         ax.set_ylabel("North-South Distance (km)")
         ax.grid(color="gray", linestyle="--", alpha=0.3)
 
-        from matplotlib.patches import Patch
         legend_elements = [
             Patch(facecolor="#dcdcdc", label="Sunlit / Intermittent Rim"),
             Patch(facecolor="#3182bd", label="Permanently Shadowed Region (PSR)"),
             Patch(facecolor="#081d58", label="Doubly Shadowed Core (<110 K Cold Trap)")
         ]
         ax.legend(handles=legend_elements, loc="upper left", framealpha=0.9)
-        map_shadow_zones = MAPS_DIR / "map_phase3_shadow_zones.png"
+        map_shadow_zones = self.maps_dir / "map_phase3_shadow_zones.png"
         fig.tight_layout()
         fig.savefig(map_shadow_zones, bbox_inches="tight")
         plt.close(fig)
+        write_provenance_sidecar(map_shadow_zones, input_paths, self.cfg.model_dump(), {"map": "shadow_zones"})
 
         # Compile Summary Table
         pixel_area_km2 = (self.terrain_cfg.grid_resolution_m / 1000.0) ** 2
@@ -290,8 +316,9 @@ class TerrainIlluminationEngine:
             {"Metric": "Direct Earth Visibility Area (LOS > 0.5)", "Value": f"{np.sum(earth_los > 0.5) * pixel_area_km2:.2f} km² ({100.0 * np.sum(earth_los > 0.5) / dem.size:.1f}%)"}
         ]
         df_summary = pd.DataFrame(summary_data)
-        summary_csv = TABLES_DIR / "phase3_terrain_illumination_summary.csv"
+        summary_csv = self.tables_dir / "phase3_terrain_illumination_summary.csv"
         df_summary.to_csv(summary_csv, index=False)
+        write_provenance_sidecar(summary_csv, input_paths, self.cfg.model_dump(), {"table": "terrain_summary"})
 
         return {
             "summary": df_summary,
@@ -299,15 +326,11 @@ class TerrainIlluminationEngine:
         }
 
 
-def run_phase3():
+def run_phase3(config: LunaTraceConfig = CFG):
     print("[*] Running Phase 3: Terrain and Illumination Analysis...")
-    engine = TerrainIlluminationEngine()
+    engine = TerrainIlluminationEngine(config=config)
     results = engine.process_and_export()
     print("[+] Phase 3 completed successfully!")
     print("\n--- Terrain and Illumination Summary ---")
     print(results["summary"].to_string(index=False))
     return results
-
-
-if __name__ == "__main__":
-    run_phase3()

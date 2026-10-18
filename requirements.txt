@@ -9,3 +9,5 @@ pyproj>=3.6.0
 pandas>=2.2.0
 affine>=2.4.0
 tifffile>=2024.5.0
+streamlit>=1.35.0
+plotly>=5.20.0

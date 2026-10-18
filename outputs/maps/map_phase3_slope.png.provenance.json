@@ -1,0 +1,248 @@
+{
+  "output_file": "map_phase3_slope.png",
+  "output_sha256": "60297543ac58c673fdc830a251d352b221e849292e89baac9999015628844a30",
+  "timestamp_utc": "2026-10-18T18:33:26.568035+00:00",
+  "git_commit": "cb2ae085230444b2447db050bc36cf515558d14c",
+  "software_versions": {
+    "python": "3.14.7",
+    "numpy": "2.5.3",
+    "rasterio": "1.5.2",
+    "scipy": "1.18.1",
+    "pandas": "3.0.6",
+    "pydantic": "2.13.4"
+  },
+  "input_files": {
+    "lola_dem_20m.tif": "850b611de01642cd4779468434e3bd629798e2ebe702f0214a8fcbb638e30008"
+  },
+  "config_snapshot": {
+    "paths": {
+      "raw_data_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-198\\luna_test_fixtures0\\raw",
+      "processed_data_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-198\\luna_test_fixtures0\\processed",
+      "outputs_maps_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-198\\luna_test_fixtures0\\maps",
+      "outputs_tables_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-198\\luna_test_fixtures0\\tables",
+      "provenance_file": "C:\\Users\\Ankit Singh Tomar\\LunaTrace\\LunaTrace\\DATA_PROVENANCE.md"
+    },
+    "crs": {
+      "proj4_string": "+proj=stere +lat_0=-90 +lon_0=0 +k=1 +x_0=0 +y_0=0 +R=1737400 +units=m +no_defs",
+      "expected_epsg": 3032
+    },
+    "numerics": {
+      "eps": 1e-10,
+      "float_precision": "float32"
+    },
+    "radar": {
+      "filter_type": "enhanced_lee",
+      "filter_window_size": 5,
+      "num_looks": 4,
+      "min_valid_stokes1": 1e-06,
+      "cpr_min_clip": 0.0,
+      "cpr_max_clip": 5.0,
+      "dop_min_clip": 0.0,
+      "dop_max_clip": 1.0,
+      "sin_2chi_min_clip": -1.0,
+      "sin_2chi_max_clip": 1.0,
+      "cpr_ice_threshold": 1.0,
+      "dop_ice_max": 0.32,
+      "cpr_rock_threshold": 1.0
+    },
+    "ice_detection": {
+      "weights": {
+        "polarimetric": 0.4,
+        "dual_frequency": 0.35,
+        "cold_trap": 0.25
+      },
+      "roughness_penalty_scale": 0.85,
+      "cpr_sigmoid_steepness": 4.0,
+      "dop_sigmoid_steepness": 15.0,
+      "delta_cpr_min_threshold": 0.2,
+      "delta_cpr_scale": 0.5,
+      "delta_cpr_clip_min": -1.0,
+      "delta_cpr_clip_max": 3.0,
+      "cold_trap_illum_threshold": 0.1,
+      "cold_trap_depth_m": -350.0,
+      "weight_trap_illum": 0.6,
+      "weight_trap_depth": 0.4,
+      "trap_depth_normalization_m": 1000.0,
+      "hazard_slope_baseline_deg": 8.0,
+      "hazard_slope_scale_deg": 10.0,
+      "weight_rough_slope": 1.0,
+      "high_prob_ice_cutoff": 0.5,
+      "trap_confidence_cutoff": 0.4,
+      "control_illum_min": 0.4,
+      "control_min_elevation_m": 0.0,
+      "control_min_slope_deg": 10.0,
+      "rocky_delta_cpr_max": 0.25,
+      "bg_regolith_illum_min": 0.3,
+      "bg_regolith_max_slope_deg": 8.0,
+      "sensitivity_cpr_thresholds": [
+        0.8,
+        1.0,
+        1.2
+      ],
+      "sensitivity_dop_thresholds": [
+        0.25,
+        0.3,
+        0.35
+      ]
+    },
+    "terrain": {
+      "grid_resolution_m": 20.0,
+      "extent_km": 10.0,
+      "target_crater_name": "Faustini_Floor",
+      "center_lat": -87.3,
+      "center_lon": 77.0,
+      "rms_window_size": 5,
+      "contour_levels": [
+        -1500.0,
+        -1000.0,
+        -500.0,
+        0.0,
+        500.0
+      ],
+      "slope_contour_levels": [
+        5.0,
+        15.0
+      ]
+    },
+    "illumination": {
+      "azimuth_count": 72,
+      "solar_elevation_min_deg": 0.5,
+      "solar_elevation_max_deg": 2.5,
+      "solar_elevation_steps": 5,
+      "ray_step_distances_m": [
+        60.0,
+        120.0,
+        240.0,
+        500.0,
+        1000.0,
+        2000.0,
+        4000.0
+      ],
+      "psr_illumination_cutoff": 0.005,
+      "sky_view_factor_cutoff": 0.86,
+      "deep_floor_shadow_threshold_m": -350.0,
+      "earth_elevation_mean_deg": 3.5,
+      "earth_ray_distances_m": [
+        100.0,
+        300.0,
+        700.0,
+        1500.0,
+        3000.0,
+        6000.0
+      ]
+    },
+    "landing": {
+      "max_landing_slope_deg": 5.0,
+      "min_illumination_fraction": 0.2,
+      "min_crater_distance_m": 1000.0,
+      "max_crater_distance_m": 7500.0,
+      "optimal_ice_distance_m": 2000.0,
+      "top_k_sites": 3,
+      "spatial_separation_pixels": 25,
+      "roughness_percentile": 95.0,
+      "weights_without_ohrc": {
+        "slope": 0.35,
+        "roughness": 0.25,
+        "illumination": 0.25,
+        "earth_los": 0.15
+      },
+      "weights_with_ohrc": {
+        "slope": 0.3,
+        "roughness": 0.15,
+        "boulders": 0.15,
+        "illumination": 0.25,
+        "earth_los": 0.15
+      }
+    },
+    "rover": {
+      "chassis_rollover_limit_deg": 22.5,
+      "safety_factor": 1.25,
+      "speed_m_per_s": 0.08,
+      "battery_capacity_wh": 1800.0,
+      "baseline_power_w": 65.0,
+      "traction_power_w_per_deg": 4.0,
+      "solar_charge_rate_w": 110.0,
+      "min_battery_reserve_pct": 20.0,
+      "max_shadow_time_hours": 18.0,
+      "slope_scale_shortest": 5.0,
+      "weight_slope_shortest": 0.5,
+      "weight_rough_shortest": 0.3,
+      "slope_scale_safest": 4.0,
+      "weight_slope_safest": 1.8,
+      "weight_rough_safest": 3.0,
+      "slope_scale_illuminated": 3.5,
+      "weight_slope_illuminated": 1.2,
+      "weight_rough_illuminated": 1.5,
+      "weight_shadow_illuminated": 12.0,
+      "max_nav_slope_deg": 18.0
+    },
+    "volume": {
+      "regolith_depth_max_m": 5.0,
+      "cpr_scale_range": 1.0,
+      "cpr_norm_max_factor": 1.5,
+      "nominal_lag_m": 0.5,
+      "sensitivity_fractions_min": 0.02,
+      "sensitivity_fractions_max": 0.35,
+      "sensitivity_fractions_steps": 50,
+      "sensitivity_depths": [
+        1.5,
+        2.5,
+        3.5,
+        5.0
+      ],
+      "scenarios": {
+        "Low (Conservative)": {
+          "base_fraction": 0.05,
+          "eff_depth_m": 2.0,
+          "dry_lag_m": 0.8,
+          "active_depth_m": 1.2,
+          "description": "Sparse disseminated pore ice; thick 0.8m dry lag; shallow penetration depth (2.0m)"
+        },
+        "Nominal (Realistic)": {
+          "base_fraction": 0.15,
+          "eff_depth_m": 3.5,
+          "dry_lag_m": 0.5,
+          "active_depth_m": 3.0,
+          "description": "Heterogeneous ice-regolith breccia; 0.5m dry lag; L-band penetration depth (3.5m)"
+        },
+        "High (Optimistic)": {
+          "base_fraction": 0.3,
+          "eff_depth_m": 5.0,
+          "dry_lag_m": 0.3,
+          "active_depth_m": 4.7,
+          "description": "Segregated ice lenses / paleo-cometary deposits; full 0-5m column extrapolated"
+        }
+      }
+    },
+    "visualization": {
+      "dpi": 300,
+      "scale_bar_length_km": 4.0,
+      "cpr_plot_vmin": 0.2,
+      "cpr_plot_vmax": 2.0,
+      "dop_plot_vmin": 0.0,
+      "dop_plot_vmax": 1.0,
+      "delta_cpr_plot_vmin": -0.5,
+      "delta_cpr_plot_vmax": 1.2,
+      "max_regional_slope_plot": 30.0,
+      "default_vmin_percentile": 2.0,
+      "default_vmax_percentile": 98.0,
+      "profile_slope_ylim": 16.0,
+      "profile_soc_ylim": 105.0
+    },
+    "target_bounding_box": {
+      "lat_min": -87.8,
+      "lat_max": -86.5,
+      "lon_min": 78.0,
+      "lon_max": 88.0
+    },
+    "pds4_ingestion": {
+      "azimuth_looks": 8,
+      "range_looks": 2,
+      "target_resolution_m": 20.0,
+      "geocoding_interpolation": "bilinear"
+    }
+  },
+  "metadata": {
+    "map": "slope"
+  }
+}

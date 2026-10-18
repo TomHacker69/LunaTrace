@@ -1,0 +1,9 @@
+Metric,Value
+Total Analyzed Regional Area,100.0 km²
+Permanently Shadowed Region (PSR) Area,19.22 km² (19.2%)
+Doubly Shadowed Core Zone Area,0.00 km² (0.0%)
+Mean Regional Slope,11.74° (Std: 8.05°)
+Safe Landing Terrain Area (Slope < 5°),20.27 km² (20.3%)
+Traversable Rover Area (Slope < 18°),79.15 km² (79.1%)
+High Illumination Rim Area (Fraction > 0.6),4.53 km² (4.5%)
+Direct Earth Visibility Area (LOS > 0.5),27.12 km² (27.1%)

@@ -4,3 +4,14 @@ __pycache__/
 .pytest_cache/
 .DS_Store
 Thumbs.db
+
+# Mission raw and processed rasters (>100MB, registered in DATA_PROVENANCE.md)
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+
+# Local environment
+.venv/
+env/
+venv/

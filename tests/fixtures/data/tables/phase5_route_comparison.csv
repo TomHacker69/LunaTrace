@@ -1,0 +1,4 @@
+Route_Name,Description,Distance_m,Total_Time_h,Shadow_Time_h,Max_Slope_deg,Mean_Slope_deg,Min_Battery_SoC_pct,Energy_Consumed_Wh,Traverse_Feasible
+Shortest Route,Direct distance path; accepts steeper slopes within chassis safety factor,3929.0,13.64,13.18,17.88,10.85,41.4,1479.7,True
+Safest Route (RECOMMENDED),Minimizes slope gradient within 18.0 deg derived chassis limit,4305.6,14.95,14.5,17.88,9.86,38.5,1573.4,True
+Best-Illuminated Route,Follows sunlit rim ridge as long as possible before cold trap entry,3973.9,13.8,13.36,17.88,10.72,41.0,1490.8,True

@@ -1,38 +1,71 @@
 # LunaTrace: Lunar Polar Subsurface Ice & Traverse Pipeline
-### Chandrayaan-2 DFSAR Polarimetry, Topographic Horizon Modeling, Landing Site Selection, and Rover Traverse Planning
-
+### Chandrayaan-2 DFSAR Polarimetry, Topographic Horizon-Ephemeris Modeling, Landing Site Selection, and Rover Traverse Planning
+**ISRO Hackathon Problem Statement 8**
 
 ---
 
 ## Overview
-**LunaTrace** is an end-to-end Python geospatial engineering pipeline designed to detect and characterize subsurface ice in permanently shadowed regions (PSRs) and doubly shadowed cold traps at the Lunar South Pole using Chandrayaan-2 Dual Frequency Synthetic Aperture Radar (DFSAR) and LOLA Digital Elevation Models.
+**LunaTrace** is an end-to-end scientific remote sensing and mission planning pipeline designed to detect and quantify subsurface water ice deposits in permanently shadowed regions (PSRs) and cryogenic cold traps at the Lunar South Pole using **Chandrayaan-2 Dual-Frequency Synthetic Aperture Radar (DFSAR)** and **Lunar Reconnaissance Orbiter (LRO) LOLA Digital Elevation Models**.
 
-The pipeline resolves the critical remote sensing ambiguity between volume ice scattering and rocky ejecta roughness, selects safe landing zones on illuminated crater rims, plans energy-optimal rover traverse routes into cryogenic cold traps, and provides dielectric volumetric resource estimates across the top 0–5 m of lunar regolith.
+The pipeline resolves the fundamental radar ambiguity between volumetric ice scattering and surface rock roughness, identifies safe landing zones on illuminated crater rims, plans energy-optimal rover traverse routes into cold traps, and provides dielectric volumetric resource estimates across the top 0–5 m of lunar regolith.
 
 ---
 
-## Pipeline Architecture
+## Core Scientific Architectural Principles
+
+1. **Zero Hardcoded Logic:**
+   - Every threshold, weight, spatial resolution, and solar parameter is defined in `config.yaml` and validated strictly on startup using Pydantic (`src/config_schema.py`).
+   - Physical constants (permittivities, densities, radii, conversion factors) are strictly isolated in `src/constants.py` with peer-reviewed literature citations (*Archinal et al. 2018, Margot et al. 1999, Olhoeft 1975, Fa & Wieczorek 2012, Pettinelli et al. 2015*).
+
+2. **Strict Provenance & Data Integrity:**
+   - `data/raw/` contains only verified real mission products. The pipeline automatically halts if unverified or unauthorized datasets are detected.
+   - Authorized datasets and SHA-256 verification rules are cataloged in `DATA_PROVENANCE.md`.
+   - Every generated raster (`.tif`) and table (`.csv`) is accompanied by a cryptographic `.provenance.json` sidecar capturing input file hashes, software environment versions, git commit hash, and parameter snapshots.
+
+3. **No Synthetic Fallbacks in Production:**
+   - Synthetic benchmark generators are quarantined strictly within `tests/fixtures/` and are never run on real missions.
+   - If optional datasets (such as Chandrayaan-2 OHRC 0.25 m optical imagery) are absent, the pipeline does not fall back to rough proxies; it explicitly marks the boulder hazard layer as `"UNASSESSED (OHRC not provided)"` and preserves topographic RMS roughness as an independent metric.
+
+4. **Horizon-Ephemeris Illumination & Derived Engineering Margins:**
+   - Solar illumination is calculated via a multi-angle horizon ray-tracing ephemeris model across **72 azimuthal directions** ($5^\circ$ spacing) and solar elevations over the lunar precession cycle ($0.5^\circ - 2.5^\circ$). No artificial capping or arbitrary depression factors are applied; 100% illumination appears only if genuinely unobstructed.
+   - Rover traversable slope limits are strictly derived from mechanical parameters: $\theta_{\text{nav}} = \theta_{\text{rollover}} / \text{SF} = 22.5^\circ / 1.25 = 18.0^\circ$.
+
+---
+
+## Repository Structure
+
 ```text
 LunaTrace/
+├── config.yaml              # Schema-validated central configuration
+├── DATA_PROVENANCE.md       # Mission dataset registry & SHA-256 verification
+├── AUDIT.md                 # Pre-refactoring scientific & compliance audit
+├── requirements.txt         # Python environment dependencies
+├── run_pipeline.py          # Master CLI runner executing all 6 phases
+├── app.py                   # Interactive Streamlit mission planning dashboard
 ├── data/
-│   ├── raw/                 # Input DEM, DFSAR Stokes parameters, illumination rasters
-│   └── processed/           # Processed CPR, DOP, m-chi decomposition, and suitability layers
+│   ├── raw/                 # Real Chandrayaan-2 DFSAR and LOLA GeoTIFFs (verified)
+│   └── processed/           # Processed polarimetric, illumination, and suitability rasters
 ├── outputs/
-│   ├── maps/                # High-resolution cartographic figures with scale bars & North arrows
-│   ├── tables/              # Quantitative CSV summaries across all phases
-│   └── LunaTrace_Technical_Report.md  # Comprehensive technical report & 7-slide summary
+│   ├── maps/                # High-resolution cartographic figures
+│   └── tables/              # Quantitative CSV summaries with .provenance.json sidecars
 ├── src/
-│   ├── config.py            # Central configuration (all thresholds, radar constants, rover specs)
-│   ├── utils.py             # Speckle filtering, GeoTIFF I/O, cartographic mapping
-│   ├── benchmark_data.py    # Physically consistent synthetic lunar crater dataset generator
-│   ├── phase1_dfsar.py      # Phase 1: Stokes parameters, CPR, DOP, Raney m-chi decomposition
-│   ├── phase2_ice_detection.py      # Phase 2: Multi-discriminator ice detection & Delta CPR
-│   ├── phase3_terrain_illumination.py # Phase 3: Horizon ray-tracing, slope, roughness, Earth LOS
-│   ├── phase4_landing_site.py       # Phase 4: Multi-criteria landing site selection & ranking
-│   ├── phase5_traverse_planning.py  # Phase 5: A* and Dijkstra pathfinding & battery simulation
-│   └── phase6_volume_estimation.py   # Phase 6: CRIM dielectric volume estimation & uncertainty
-├── run_pipeline.py          # Master runner executing all 6 phases end-to-end
-└── requirements.txt         # Environment dependencies
+│   ├── constants.py         # Cited physical and planetary constants
+│   ├── config_schema.py     # Pydantic v2 configuration validation
+│   ├── config.py            # Configuration loader bridge
+│   ├── validator.py         # Pre-flight raster CRS, extent, and provenance verification
+│   ├── provenance.py        # Cryptographic sidecar generator (SHA-256)
+│   ├── utils.py             # Enhanced Lee filter, GeoTIFF I/O, cartographic plotting
+│   ├── phase1_dfsar.py      # Stokes polarimetry, CPR, DoP, m-chi decomposition
+│   ├── phase2_ice_detection.py # Subsurface ice discrimination & de-circularized FPR
+│   ├── phase3_terrain_illumination.py # Horizon ephemeris ray-tracing & PSR mapping
+│   ├── phase4_landing_site.py # Multi-criteria landing site selection & ranking
+│   ├── phase5_traverse_planning.py # A* and Dijkstra traverse planning & power modeling
+│   └── phase6_volume_estimation.py # Volumetric CRIM ice modeling & resource curves
+└── tests/
+    ├── conftest.py          # Isolated test fixture session setup
+    ├── test_pipeline.py     # Automated test suite (config, filters, physics, E2E)
+    └── fixtures/
+        └── synthetic_crater_generator.py # Synthetic test crater (TEST ONLY)
 ```
 
 ---
@@ -47,45 +80,44 @@ cd LunaTrace
 pip install -r requirements.txt
 ```
 
-### 2. Run the Full 6-Phase Pipeline
-Execute all six phases in sequence with a single command:
+### 2. Automated Test Suite
+Run the test suite against isolated fixtures in `tests/`:
+```bash
+python -m pytest tests/test_pipeline.py -v
+```
+
+### 3. Launch the Interactive Mission Dashboard
+Start the Streamlit interactive dashboard:
+```bash
+streamlit run app.py
+```
+Open `http://localhost:8501` in your browser. The dashboard features:
+- Interactive 3D terrain surface rendering.
+- Polarimetric CPR and $m-\chi$ RGB decomposition visualization.
+- Sensitivity sweep charts with de-circularized control false-positive rates.
+- Multi-criteria candidate landing sites with dynamic engineering justifications.
+- Rover traverse pathfinding maps with battery State-of-Charge (SoC) profiles.
+- Volumetric CRIM scenario comparisons and uncertainty envelopes.
+- Cryptographic `.provenance.json` sidecar inspector.
+
+### 4. Run the Full Pipeline from CLI
+To run all six phases end-to-end on mission data:
 ```bash
 python run_pipeline.py
 ```
 
-### 3. Run Individual Modules
-Each phase can also be executed independently:
-```bash
-python -m src.phase1_dfsar
-python -m src.phase2_ice_detection
-python -m src.phase3_terrain_illumination
-python -m src.phase4_landing_site
-python -m src.phase5_traverse_planning
-python -m src.phase6_volume_estimation
-```
+*Note: If `data/raw/` does not yet contain real verified mission rasters, `run_pipeline.py` halts loudly with instructions on required files.*
 
 ---
 
-## Key Results & Deliverables
+## Scientific Phases Summary
 
-| Deliverable | Key Output | Description |
-| :--- | :--- | :--- |
-| **Ice Probability Map** | `outputs/maps/map_phase2_ice_probability.png` | Continuous 0 to 1 ice probability score draping topographic contours |
-| **Delta CPR Map** | `outputs/maps/map_phase2_delta_cpr.png` | Dual-frequency indicator (L-band minus S-band) isolating buried ice |
-| **Landing Site Ranking** | `outputs/maps/map_phase4_landing_sites.png` | Top 3 candidate sites overlaid on multi-criteria suitability surface |
-| **Rover Traverse Routes** | `outputs/maps/map_phase5_rover_traverses.png` | Shortest, Safest, and Best-Illuminated routes to ice target |
-| **Traverse Profile** | `outputs/maps/map_phase5_recommended_route_profile.png` | Elevation, slope angle, and battery state of charge (SoC) along Safest Route |
-| **Water Column Depth** | `outputs/maps/map_phase6_water_column.png` | Spatial equivalent pure water ice column (meters) |
-| **Resource Sensitivity** | `outputs/maps/map_phase6_volume_sensitivity.png` | Water mass sensitivity curve across dielectric fractions and column depths |
-| **Technical Report** | `outputs/LunaTrace_Technical_Report.md` | Full scientific report and 7-slide presentation pitch deck |
+1. **DFSAR Polarimetry (Phase 1):** Hybrid polarimetric Stokes processing (Right Circular transmit, Linear H/V receive). Calculates Circular Polarization Ratio ($\text{CPR} = (S_1 - S_4)/(S_1 + S_4)$), Degree of Polarization ($m = \sqrt{S_2^2 + S_3^2 + S_4^2}/S_1$), and Raney $m-\chi$ decomposition with Enhanced Lee speckle filtering.
+2. **Ice Detection (Phase 2):** Dual-frequency depth profiling ($\Delta \text{CPR} = \text{CPR}_L - \text{CPR}_S$). Tests radar-alone rejection power alongside the combined thermal cold trap model to de-circularize false-positive assessment. Boulder hazard is flagged explicitly as unassessed when OHRC is absent.
+3. **Terrain & Ephemeris Horizon Modeling (Phase 3):** Azimuthal ray-tracing across 72 directions over the lunar precession cycle, delineating permanently shadowed regions (PSRs), doubly shadowed zones, and direct Earth visibility without artificial clipping.
+4. **Landing Site Selection (Phase 4):** Hard engineering constraints ($\theta \le 5^\circ$, illumination $\ge 20\%$, ice standoff $1.0 - 7.5\text{ km}$) combined via Multi-Criteria Evaluation (MCE) with dynamically synthesized justifications.
+5. **Rover Traverse Planning (Phase 5):** 8-connected $A^*$ pathfinding benchmarked against Dijkstra's algorithm. Adheres to derived chassis rollover safety limits ($\theta_{\text{nav}} \le 18.0^\circ$) and solar charging energy balances ($1.8\text{ kWh}$ battery, $20\%$ minimum reserve floor).
+6. **Volumetric Ice Estimation (Phase 6):** Complex Refractive Index Model (CRIM) inversion across $0 - 5\text{ m}$ regolith column across Low, Nominal, and High geological scenarios using peer-reviewed dielectric constants.
 
 ---
-
-## Scientific Methods Summary
-
-1. **DFSAR Polarimetry (Phase 1):** Hybrid polarimetric Stokes processing (Right Circular transmit, Linear H/V receive). Calculates Circular Polarization Ratio ($\text{CPR} = (S_1 - S_4)/(S_1 + S_4)$), Degree of Polarization ($m = \sqrt{S_2^2 + S_3^2 + S_4^2}/S_1$), and Raney $m-\chi$ 3-component decomposition (Volume, Double-bounce, Surface).
-2. **Ice Detection (Phase 2):** Dual-frequency depth profiling ($\Delta \text{CPR} = \text{CPR}_L - \text{CPR}_S$). Proves the theoretical polarimetric lower bound $m \ge |\text{CPR}-1|/(\text{CPR}+1)$, resolving the rock-vs-ice ambiguity with $0.00\%$ false positives in rocky ejecta control terrain.
-3. **Terrain & Horizon Ray-Tracing (Phase 3):** Azimuthal horizon modeling across 16 directions simulating grazing polar sunlight ($1.5^\circ$), delineating permanently shadowed regions (PSRs), doubly shadowed cryogenic cold traps ($< 100\text{ K}$), and Earth direct line-of-sight under lunar libration.
-4. **Landing Site Selection (Phase 4):** Hard engineering constraints ($\theta \le 5^\circ$, boulder hazard $< 0.30$, illumination $> 20\%$, and standoff distance $1.0 - 7.5\text{ km}$) combined via Weighted Multi-Criteria Evaluation (MCE) to rank the Top 3 landing sites.
-5. **Rover Traverse Planning (Phase 5):** 8-connected $A^*$ pathfinding benchmarked against Dijkstra's algorithm. Integrates dynamic solar charging and battery power drain ($1.8\text{ kWh}$ pack, $65\text{ W}$ baseload, $4\text{ W/deg}$ traction), demonstrating feasible cold-trap ingress with $37.7\%$ battery reserve margin.
-6. **Volumetric Ice Estimation (Phase 6):** Complex Refractive Index Model (CRIM) inversion across the $0 - 5\text{ m}$ regolith column. Computes **Low ($0.27\text{ Mt}$)**, **Nominal ($2.02\text{ Mt}$)**, and **High ($6.32\text{ Mt}$)** pure water ice resource reserves.
+*LunaTrace v2.0 | Pure Real Data Architecture | Developed for ISRO Hackathon PS-8*
