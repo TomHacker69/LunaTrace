@@ -304,10 +304,11 @@ def test_artifacts_existence_and_provenance(test_config: LunaTraceConfig, proces
 def test_real_slc_crop_stokes_invariants():
     """
     Ingests a small real Chandrayaan-2 DFSAR SLC crop from data/raw/ and asserts Stokes invariants:
-    - S1 >= 0 everywhere
-    - 0 <= DoP <= 1 everywhere
-    - CPR >= 0 everywhere
-    - Diffusely scattering lunar regolith satisfies median CPR < 1.0 (canonical 0.2-0.4).
+    - Zero-fill / invalid margin pixels are explicitly masked to NaN with valid_mask == 0.
+    - S1 >= 0 everywhere on valid lunar pixels.
+    - 0 <= DoP <= 1 everywhere on valid lunar pixels.
+    - CPR >= 0 everywhere on valid lunar pixels without artificial clipping.
+    - Diffusely scattering lunar regolith satisfies median CPR < 1.0 (canonical 0.2-0.5) on valid pixels.
     """
     pds4_dir = Path("data/raw/ch2_sar_ncxl_20260403t190328238_d_cp_d18")
     if not pds4_dir.exists():
@@ -322,19 +323,30 @@ def test_real_slc_crop_stokes_invariants():
 
     label_meta = parse_pds4_xml_label(xml_candidates[0])
     window = rasterio.windows.Window(0, 150000, 1152, 2000)
-    c_lh, c_lv = read_complex_slc_pair(lh_candidates[0], lv_candidates[0], window=window)
+    c_lh, c_lv, valid_raw = read_complex_slc_pair(lh_candidates[0], lv_candidates[0], window=window, return_mask=True)
 
     e_lh, e_lv = apply_radiometric_calibration(c_lh, c_lv, label_meta)
-    stokes = multilook_and_compute_stokes(e_lh, e_lv, azimuth_looks=8, range_looks=2)
+    stokes = multilook_and_compute_stokes(e_lh, e_lv, azimuth_looks=8, range_looks=2, valid_raw_mask=valid_raw)
 
-    s1 = stokes["S1"]
-    cpr = stokes["CPR"]
-    dop = stokes["DOP"]
+    # 1. Assert that fill pixels are masked
+    fill_mask = stokes["valid_mask"] == 0
+    assert np.sum(fill_mask) > 0, "Zero-fill margin pixels must be detected in SLC swath"
+    assert np.all(np.isnan(stokes["CPR"][fill_mask])), "CPR must be NaN for fill pixels"
+    assert np.all(np.isnan(stokes["DOP"][fill_mask])), "DOP must be NaN for fill pixels"
+    assert np.all(np.isnan(stokes["S1"][fill_mask])), "S1 must be NaN for fill pixels"
+
+    # 2. Assert invariants on valid pixels only
+    v_mask = stokes["valid_mask"] == 1
+    assert np.sum(v_mask) > 0, "Must have valid lunar pixels"
+    s1 = stokes["S1"][v_mask]
+    cpr = stokes["CPR"][v_mask]
+    dop = stokes["DOP"][v_mask]
 
     assert np.all(s1 >= 0.0)
     assert np.all(dop >= 0.0) and np.all(dop <= 1.0)
     assert np.all(cpr >= 0.0)
     assert np.median(cpr) < 1.0
-    assert 0.15 < np.median(cpr) < 0.60
+    assert 0.20 < np.median(cpr) < 0.60
+
 
 

@@ -22,6 +22,7 @@ import rasterio
 from rasterio.transform import from_origin, Affine
 from pyproj import Transformer, CRS
 from scipy.interpolate import griddata
+from scipy.ndimage import uniform_filter
 
 from src.config_schema import LunaTraceConfig, BoundingBoxConfig
 from src.provenance import write_provenance_sidecar, compute_file_sha256
@@ -212,7 +213,8 @@ def verify_footprint_overlap(
 def read_complex_slc_pair(
     lh_path: Path,
     lv_path: Path,
-    window: Optional[rasterio.windows.Window] = None
+    window: Optional[rasterio.windows.Window] = None,
+    return_mask: bool = False
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Reads complex Single Look Complex (SLC) LH and LV files.
@@ -245,6 +247,10 @@ def read_complex_slc_pair(
 
     c_lh = real_lh + 1j * imag_lh
     c_lv = real_lv + 1j * imag_lv
+
+    if return_mask:
+        valid_raw = ((real_lh != 0) | (imag_lh != 0)) & ((real_lv != 0) | (imag_lv != 0))
+        return c_lh, c_lv, valid_raw
     return c_lh, c_lv
 
 
@@ -285,15 +291,14 @@ def multilook_and_compute_stokes(
     e_lv: np.ndarray,
     azimuth_looks: int = 8,
     range_looks: int = 2,
-    eps: float = 1e-10
+    valid_raw_mask: Optional[np.ndarray] = None,
+    eps: float = 1e-12
 ) -> Dict[str, np.ndarray]:
     """
     Multilooks complex channels to compute statistical expectation values and Stokes S1-S4.
-    Enforces Stokes invariants:
-    - S1 >= 0
-    - S1^2 >= S2^2 + S3^2 + S4^2 (Cauchy-Schwarz inequality)
-    - DOP in [0, 1]
-    - CPR >= 0
+    Excludes invalid zero-filled slant range margin pixels via valid_raw_mask.
+    Computes both native 16-look DoP and high-look (~136 looks) DoP.
+    Removes artificial clipping on CPR.
     """
     ny, nx = e_lh.shape
     out_ny = ny // azimuth_looks
@@ -316,6 +321,13 @@ def multilook_and_compute_stokes(
     lh_block = lh_trim.reshape(shape_4d)
     lv_block = lv_trim.reshape(shape_4d)
 
+    # Determine multilooked valid mask (only blocks where all pixels are non-zero)
+    if valid_raw_mask is not None:
+        mask_trim = valid_raw_mask[:trim_ny, :trim_nx]
+        valid_looks = mask_trim.reshape(shape_4d).all(axis=(1, 3))
+    else:
+        valid_looks = np.ones((out_ny, out_nx), dtype=bool)
+
     # Ensemble expectation values < |E_LH|^2 >, < |E_LV|^2 >, < E_LH * conj(E_LV) >
     p_lh = np.mean(np.abs(lh_block) ** 2, axis=(1, 3))
     p_lv = np.mean(np.abs(lv_block) ** 2, axis=(1, 3))
@@ -327,26 +339,50 @@ def multilook_and_compute_stokes(
     s3 = 2.0 * np.real(cross)
     s4 = -2.0 * np.imag(cross)  # IEEE left-hand circular transmit convention
 
-    # Physical Invariant Checks
-    if np.any(s1 < -eps):
-        raise FloatingPointError("Stokes S1 invariant violation: received negative total power!")
-    s1 = np.maximum(s1, 0.0)
-
-    # Polarized intensity check: S1^2 >= S2^2 + S3^2 + S4^2
+    # Polarized intensity: s1^2 >= s2^2 + s3^2 + s4^2
     pol_power_sq = s2 ** 2 + s3 ** 2 + s4 ** 2
-    pol_power = np.sqrt(pol_power_sq)
-    dop = np.clip(pol_power / (s1 + eps), 0.0, 1.0)
+    pol_power = np.sqrt(np.maximum(0.0, pol_power_sq))
 
-    # Circular Polarization Ratio: CPR = (S1 - S4) / (S1 + S4)
-    cpr = np.clip((s1 - s4) / (s1 + s4 + eps), 0.0, 10.0)
+    # Native 16-look DoP on valid pixels
+    dop_16 = np.where(valid_looks & (s1 > eps), pol_power / (s1 + eps), np.nan)
+    dop_16 = np.clip(dop_16, 0.0, 1.0)
+
+    # Circular Polarization Ratio on valid pixels with NO ARTIFICIAL CLIPPING
+    cpr = np.where(valid_looks & ((s1 + s4) > eps), (s1 - s4) / (s1 + s4), np.nan)
+
+    # High-Look DoP (target ~136 looks)
+    # Applying a 3x3 moving window average over 16-look covariances: 16 * 9 = 144 looks (~136 looks)
+    p_lh_smooth = uniform_filter(np.where(valid_looks, p_lh, 0.0), size=3)
+    p_lv_smooth = uniform_filter(np.where(valid_looks, p_lv, 0.0), size=3)
+    cross_real_smooth = uniform_filter(np.where(valid_looks, np.real(cross), 0.0), size=3)
+    cross_imag_smooth = uniform_filter(np.where(valid_looks, np.imag(cross), 0.0), size=3)
+    count_smooth = uniform_filter(valid_looks.astype(float), size=3)
+    valid_smooth = count_smooth > 0.5
+
+    s1_high = (p_lh_smooth + p_lv_smooth) / np.maximum(count_smooth, 1e-6)
+    s2_high = (p_lh_smooth - p_lv_smooth) / np.maximum(count_smooth, 1e-6)
+    s3_high = 2.0 * cross_real_smooth / np.maximum(count_smooth, 1e-6)
+    s4_high = -2.0 * cross_imag_smooth / np.maximum(count_smooth, 1e-6)
+
+    pol_high_sq = s2_high ** 2 + s3_high ** 2 + s4_high ** 2
+    dop_high = np.where(valid_smooth & (s1_high > eps), np.sqrt(np.maximum(0.0, pol_high_sq)) / (s1_high + eps), np.nan)
+    dop_high = np.clip(dop_high, 0.0, 1.0)
+
+    # Mask invalid pixels
+    s1_out = np.where(valid_looks, s1, np.nan)
+    s2_out = np.where(valid_looks, s2, np.nan)
+    s3_out = np.where(valid_looks, s3, np.nan)
+    s4_out = np.where(valid_looks, s4, np.nan)
 
     return {
-        "S1": s1.astype(np.float32),
-        "S2": s2.astype(np.float32),
-        "S3": s3.astype(np.float32),
-        "S4": s4.astype(np.float32),
+        "S1": s1_out.astype(np.float32),
+        "S2": s2_out.astype(np.float32),
+        "S3": s3_out.astype(np.float32),
+        "S4": s4_out.astype(np.float32),
         "CPR": cpr.astype(np.float32),
-        "DOP": dop.astype(np.float32)
+        "DOP": dop_16.astype(np.float32),
+        "DOP_136_looks": dop_high.astype(np.float32),
+        "valid_mask": valid_looks.astype(np.uint8)
     }
 
 
@@ -554,7 +590,7 @@ def run_phase0_ingestion(config: LunaTraceConfig, pds4_dir: Optional[Path] = Non
 
     print(f"[*] Reading complex SLC channels cropped to lines {line_start} to {line_start + line_count} (height: {line_count})...")
     slc_window = rasterio.windows.Window(0, line_start, 1152, line_count)
-    c_lh, c_lv = read_complex_slc_pair(lh_path, lv_path, window=slc_window)
+    c_lh, c_lv, valid_raw = read_complex_slc_pair(lh_path, lv_path, window=slc_window, return_mask=True)
 
     # 4. Radiometric Calibration
     print(f"[*] Applying radiometric calibration and channel balance...")
@@ -564,21 +600,25 @@ def run_phase0_ingestion(config: LunaTraceConfig, pds4_dir: Optional[Path] = Non
     az_looks = config.pds4_ingestion.azimuth_looks
     rg_looks = config.pds4_ingestion.range_looks
     print(f"[*] Multilooking ({az_looks} az x {rg_looks} rg = {az_looks * rg_looks} looks) and computing Stokes parameters S1-S4...")
-    stokes = multilook_and_compute_stokes(e_lh, e_lv, azimuth_looks=az_looks, range_looks=rg_looks)
+    stokes = multilook_and_compute_stokes(e_lh, e_lv, azimuth_looks=az_looks, range_looks=rg_looks, valid_raw_mask=valid_raw)
 
-    # Check CPR on smooth terrain
-    median_cpr = float(np.median(stokes["CPR"]))
-    mean_cpr = float(np.mean(stokes["CPR"]))
-    p90_cpr = float(np.percentile(stokes["CPR"], 90))
-    print(f"[+] Stokes CPR distribution on real scene: median = {median_cpr:.4f}, mean = {mean_cpr:.4f}, 90th percentile = {p90_cpr:.4f}")
+    valid_mask = stokes["valid_mask"] > 0
+    invalid_pct = float(np.mean(~valid_mask) * 100.0)
+    valid_cpr = stokes["CPR"][valid_mask]
+    median_cpr = float(np.nanmedian(valid_cpr))
+    mean_cpr = float(np.nanmean(valid_cpr))
+    p90_cpr = float(np.nanpercentile(valid_cpr, 90))
+
+    print(f"[+] Invalid / zero-fill slant range margin fraction: {invalid_pct:.2f}% (masked out)")
+    print(f"[+] Stokes CPR distribution on VALID lunar pixels: median = {median_cpr:.4f}, mean = {mean_cpr:.4f}, 90th percentile = {p90_cpr:.4f}")
     if median_cpr >= 1.0:
         raise ValueError(
             f"Stokes CPR anomaly: smooth lunar terrain produced median CPR {median_cpr:.4f} >= 1.0! "
             "Diffusely scattering lunar regolith must satisfy CPR < 1."
         )
 
-    # 6. Geocoding with Range-Doppler Terrain Correction & Uncertainty Derivation
-    print(f"[*] Geocoding Stokes products to {config.crs.proj4_string} (20 m/px) with terrain correction...")
+    # 6. Geocoding with Range-Doppler Geometry & Geolocation Uncertainty Derivation
+    print(f"[*] Geocoding Stokes products to {config.crs.proj4_string} (20 m/px)...")
     geocoded_stokes, transform, unc_stats = geocode_stokes_to_crs(
         stokes=stokes,
         geom_csv_path=geom_csv_path,
@@ -594,7 +634,7 @@ def run_phase0_ingestion(config: LunaTraceConfig, pds4_dir: Optional[Path] = Non
     band_code = label_meta["frequency_band"]
     out_paths: Dict[str, Path] = {}
 
-    for s_name in ["S1", "S2", "S3", "S4", "CPR", "DOP", "geolocation_uncertainty_m"]:
+    for s_name in ["S1", "S2", "S3", "S4", "CPR", "DOP", "DOP_136_looks", "valid_mask", "geolocation_uncertainty_m"]:
         fpath = out_dir / f"dfsar_{band_code}_{s_name}.tif"
         save_geotiff(geocoded_stokes[s_name], fpath, transform, crs=config.crs.proj4_string)
         out_paths[s_name] = fpath
