@@ -1,0 +1,31 @@
+{
+  "output_file": "dfsar_L_slant_range_dop_7x7.tif",
+  "output_sha256": "3cc31b172e75341feb8f07893866f9f6f9be474de8ed3737d7f320cf50e010fc",
+  "timestamp_utc": "2026-10-19T13:10:29.415941+00:00",
+  "git_commit": "23419d1ad2bb69a7896b974c1272c2b30e8ded3d",
+  "software_versions": {
+    "python": "3.14.7",
+    "numpy": "2.5.3",
+    "rasterio": "1.5.2",
+    "scipy": "1.18.1",
+    "pandas": "3.0.6",
+    "pydantic": "2.13.4"
+  },
+  "input_files": {
+    "ch2_sar_ncxl_20260403t190328238_d_sli_xx_cp_xx_d18.xml": "092264d149a1416785f269fa231a23d36670335f47e02de9a5e7edce8788241d",
+    "ch2_sar_ncxl_20260403t190328238_d_sli_xx_cp_lh_d18.tif": "eefaf6ba581f7ff05b1bdcf1283de83caad1ca1b04d0b2754e7f0cf1c3c36a02",
+    "ch2_sar_ncxl_20260403t190328238_d_sli_xx_cp_lv_d18.tif": "768b565c5522e1dfa9da33fa6041a86f4310d7ce1e6a86daf3d53a2fcc84c5d9",
+    "ch2_sar_ncxl_20260403t190328238_g_sli_xx_cp_xx_d18.csv": "d781d6569d6cd73c0ea3b0db4ff693ebdb59e6a7df95470ce2d076ddf86a82d5"
+  },
+  "config_snapshot": {},
+  "metadata": {
+    "description": "7x7 Window Degree of Polarization (DoP, N=206.3 looks) in slant range",
+    "geometry": "radar slant range (no geocoding or geographic claims)",
+    "raw_line_crop": {
+      "line_start": 131036,
+      "line_count": 82316,
+      "line_end": 213352
+    },
+    "snr_mask": "SNR >= 3.0 dB relative to NESZ floor 0.00975"
+  }
+}

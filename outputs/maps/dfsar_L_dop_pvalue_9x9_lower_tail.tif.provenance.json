@@ -1,8 +1,8 @@
 {
   "output_file": "dfsar_L_dop_pvalue_9x9_lower_tail.tif",
-  "output_sha256": "c5b69fa799e545edf71fec7b48bb5a1a2a6c259b1c834da882de605c58bd6e97",
-  "timestamp_utc": "2026-10-19T12:41:36.761622+00:00",
-  "git_commit": "d90ed061012481e9d091dfc104cf0294440566df",
+  "output_sha256": "98df48579cae921e7430aa77c807f6df0a2eb8d522de569a99512a3a420d3794",
+  "timestamp_utc": "2026-10-19T13:12:19.039041+00:00",
+  "git_commit": "23419d1ad2bb69a7896b974c1272c2b30e8ded3d",
   "software_versions": {
     "python": "3.14.7",
     "numpy": "2.5.3",
@@ -14,12 +14,18 @@
   "input_files": {
     "ch2_sar_ncxl_20260403t190328238_d_sli_xx_cp_xx_d18.xml": "092264d149a1416785f269fa231a23d36670335f47e02de9a5e7edce8788241d",
     "ch2_sar_ncxl_20260403t190328238_d_sli_xx_cp_lh_d18.tif": "eefaf6ba581f7ff05b1bdcf1283de83caad1ca1b04d0b2754e7f0cf1c3c36a02",
-    "ch2_sar_ncxl_20260403t190328238_d_sli_xx_cp_lv_d18.tif": "768b565c5522e1dfa9da33fa6041a86f4310d7ce1e6a86daf3d53a2fcc84c5d9"
+    "ch2_sar_ncxl_20260403t190328238_d_sli_xx_cp_lv_d18.tif": "768b565c5522e1dfa9da33fa6041a86f4310d7ce1e6a86daf3d53a2fcc84c5d9",
+    "ch2_sar_ncxl_20260403t190328238_g_sli_xx_cp_xx_d18.csv": "d781d6569d6cd73c0ea3b0db4ff693ebdb59e6a7df95470ce2d076ddf86a82d5"
   },
   "config_snapshot": {},
   "metadata": {
-    "description": "Wishart unpolarized null lower tail p-value map (9x9 Window N=246.2)",
+    "description": "Wishart unpolarized null lower tail p-value map (9x9 Window N=341.0)",
     "geometry": "radar slant range (no geocoding or geographic claims)",
+    "raw_line_crop": {
+      "line_start": 131036,
+      "line_count": 82316,
+      "line_end": 213352
+    },
     "snr_mask": "SNR >= 3.0 dB relative to NESZ floor 0.00975"
   }
 }

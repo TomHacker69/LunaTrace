@@ -1,8 +1,8 @@
 {
   "output_file": "dfsar_L_slant_range_mchi_volume.tif",
-  "output_sha256": "d96cb681aca5a6b568b9c8b5cf8e6fb860cc6627a12fb4e1ab50a762ccf96eb7",
-  "timestamp_utc": "2026-10-19T12:41:02.827264+00:00",
-  "git_commit": "d90ed061012481e9d091dfc104cf0294440566df",
+  "output_sha256": "d0d577b768e4cbee98e7d32c5ea0a2b2a3b50f8c6f88d34a244aed61385edda3",
+  "timestamp_utc": "2026-10-19T13:11:15.152371+00:00",
+  "git_commit": "23419d1ad2bb69a7896b974c1272c2b30e8ded3d",
   "software_versions": {
     "python": "3.14.7",
     "numpy": "2.5.3",
@@ -14,12 +14,18 @@
   "input_files": {
     "ch2_sar_ncxl_20260403t190328238_d_sli_xx_cp_xx_d18.xml": "092264d149a1416785f269fa231a23d36670335f47e02de9a5e7edce8788241d",
     "ch2_sar_ncxl_20260403t190328238_d_sli_xx_cp_lh_d18.tif": "eefaf6ba581f7ff05b1bdcf1283de83caad1ca1b04d0b2754e7f0cf1c3c36a02",
-    "ch2_sar_ncxl_20260403t190328238_d_sli_xx_cp_lv_d18.tif": "768b565c5522e1dfa9da33fa6041a86f4310d7ce1e6a86daf3d53a2fcc84c5d9"
+    "ch2_sar_ncxl_20260403t190328238_d_sli_xx_cp_lv_d18.tif": "768b565c5522e1dfa9da33fa6041a86f4310d7ce1e6a86daf3d53a2fcc84c5d9",
+    "ch2_sar_ncxl_20260403t190328238_g_sli_xx_cp_xx_d18.csv": "d781d6569d6cd73c0ea3b0db4ff693ebdb59e6a7df95470ce2d076ddf86a82d5"
   },
   "config_snapshot": {},
   "metadata": {
     "description": "Raney m-chi Volume Scattering Power (Pv) in slant range (Pv/S1 == 1-m)",
     "geometry": "radar slant range (no geocoding or geographic claims)",
+    "raw_line_crop": {
+      "line_start": 131036,
+      "line_count": 82316,
+      "line_end": 213352
+    },
     "snr_mask": "SNR >= 3.0 dB relative to NESZ floor 0.00975"
   }
 }

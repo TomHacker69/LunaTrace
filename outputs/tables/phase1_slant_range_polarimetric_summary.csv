@@ -1,11 +1,10 @@
-Parameter / Product,Geometry,Effective Looks,Mean,Std,Median (p50),p5,p95,Outlier Condition,Outlier Pixel Count,Outlier Fraction [%]
-Circular Polarization Ratio (CPR) - Native,Slant-Range (20m x 20m),3.0,0.4631,0.3886,0.3559,0.1124,1.1678,CPR > 1.0,"319,482",7.54%
-Circular Polarization Ratio (CPR) - 3x3 Window,Slant-Range (60m x 60m),27.4,0.3973,0.1813,0.3564,0.1891,0.7546,CPR > 1.0,"49,873",1.18%
-Circular Polarization Ratio (CPR) - 9x9 Window,Slant-Range (180m x 180m),246.2,0.3869,0.1442,0.3531,0.2185,0.6869,CPR > 1.0,"4,367",0.10%
-Degree of Polarization (DoP) - Native Cell,Slant-Range (20m x 20m),3.0,0.6049,0.1744,0.625,0.285,0.8564,CPR > 1 & DoP <= 0.13 (same-window),"8,062",0.1902%
-Degree of Polarization (DoP) - 3x3 Window,Slant-Range (60m x 60m),27.4,0.4917,0.1399,0.5057,0.2356,0.697,CPR > 1 & DoP <= 0.13 (same-window),"10,401",0.2454%
-Degree of Polarization (DoP) - 5x5 Window,Slant-Range (100m x 100m),76.0,0.4796,0.1309,0.4954,0.2334,0.6655,CPR > 1 & DoP <= 0.13 (same-window),"7,301",0.1722%
-Degree of Polarization (DoP) - 9x9 Window,Slant-Range (180m x 180m),246.2,0.4741,0.1244,0.4912,0.2368,0.6465,CPR > 1 & DoP <= 0.13 (same-window),"2,471",0.0583%
-Raney m-chi: Volume Scattering Fraction (Pv/S1 == 1 - m),Slant-Range (20m x 20m),3.0,0.3951,0.1744,0.375,0.1436,0.715,Marked Noise-Dominated at Native Looks,N/A,N/A
-Wishart Null Upper Tail (Native): P(m_null >= m_obs),Slant-Range (20m x 20m),3.0,0.528,0.26,0.5249,0.1153,0.9436,p_upper < 0.05,"46,997",1.11%
-Wishart Null Upper Tail (9x9 Window): P(m_null >= m_obs),Slant-Range (180m x 180m),246.2,0.0019,0.0273,0.0,0.0,0.0,p_upper < 0.05,"4,210,063",99.32%
+Parameter / Product,Geometry,Effective Looks,Mean,Std,Median (p50),p5,p95,Condition,Pixel Count,Share [%]
+Circular Polarization Ratio (CPR) - Native,Slant-Range (20m x 20m),4.2,0.4649,0.3906,0.3568,0.1126,1.1738,CPR > 1.0,"315,000",7.65%
+Circular Polarization Ratio (CPR) - 7x7 Window,Slant-Range (140m x 140m),206.3,0.3891,0.1499,0.3543,0.2147,0.6997,CPR > 1.0 (unexplained by speckle),"9,016",0.22%
+Circular Polarization Ratio (CPR) - 9x9 Window,Slant-Range (180m x 180m),341.0,0.3881,0.1449,0.3541,0.2189,0.6896,CPR > 1.0 (unexplained by speckle),"4,355",0.11%
+Degree of Polarization (DoP) - Native Cell,Slant-Range (20m x 20m),4.2,0.6044,0.1747,0.6245,0.284,0.8562,CPR > 1 & DoP <= 0.13 (same-window),"8,159",0.1982%
+Degree of Polarization (DoP) - 7x7 Window,Slant-Range (140m x 140m),206.3,0.4747,0.1272,0.4915,0.2326,0.6525,CPR > 1 & DoP <= 0.13 (same-window),"4,309",0.1047%
+Degree of Polarization (DoP) - 9x9 Window,Slant-Range (180m x 180m),341.0,0.4728,0.1248,0.4901,0.235,0.6459,CPR > 1 & DoP <= 0.13 (same-window),"2,474",0.0601%
+Raney m-chi: Volume Scattering Fraction (Pv/S1 == 1 - m),Slant-Range (20m x 20m),4.2,0.3956,0.1747,0.3755,0.1438,0.716,Marked Noise-Dominated at Native Looks,N/A,N/A
+Unpolarized Consistency (7x7 Window): P(m_null >= m_obs),Slant-Range (140m x 140m),206.3,0.0028,0.0343,0.0,0.0,0.0,p_upper >= 0.05 (cannot reject unpolarized),"41,201",1.0007%
+Unpolarized Consistency (9x9 Window): P(m_null >= m_obs),Slant-Range (180m x 180m),341.0,0.0011,0.0214,0.0,0.0,0.0,p_upper >= 0.05 (cannot reject unpolarized),"16,698",0.4055%

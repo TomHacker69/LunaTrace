@@ -393,8 +393,25 @@ def multilook_and_compute_stokes(
     denom_5 = np.where(valid_5 & ((s1_5 + s4_5) > eps), s1_5 + s4_5, 1.0)
     cpr_5 = np.where(valid_5 & ((s1_5 + s4_5) > eps), (s1_5 - s4_5) / denom_5, np.nan)
 
-    # 3. 9x9 window over 16-look cells: 81 * 3.04 = 246.2 effective looks
-    # Required for >= 90% acceptance at m <= 0.13 under conservative measured ENL
+    # 3. 7x7 window over 16-look cells: 49 * 4.21 = 206.3 looks (or 49 * 3.04 = 149.0 looks)
+    # Exactly meets >= 90% acceptance at m <= 0.13 under autocorrelation ENL (N_cell = 4.21)
+    p_lh_7 = uniform_filter(np.where(valid_looks, p_lh, 0.0), size=7)
+    p_lv_7 = uniform_filter(np.where(valid_looks, p_lv, 0.0), size=7)
+    cross_real_7 = uniform_filter(np.where(valid_looks, np.real(cross), 0.0), size=7)
+    cross_imag_7 = uniform_filter(np.where(valid_looks, np.imag(cross), 0.0), size=7)
+    count_7 = uniform_filter(valid_looks.astype(float), size=7)
+    valid_7 = count_7 > 0.5
+
+    s1_7 = (p_lh_7 + p_lv_7) / np.maximum(count_7, 1e-6)
+    s2_7 = (p_lh_7 - p_lv_7) / np.maximum(count_7, 1e-6)
+    s3_7 = 2.0 * cross_real_7 / np.maximum(count_7, 1e-6)
+    s4_7 = -2.0 * cross_imag_7 / np.maximum(count_7, 1e-6)
+    pol_7_sq = s2_7 ** 2 + s3_7 ** 2 + s4_7 ** 2
+    dop_206 = np.where(valid_7 & (s1_7 > eps), np.clip(np.sqrt(np.maximum(0.0, pol_7_sq)) / (s1_7 + eps), 0.0, 1.0), np.nan)
+    denom_7 = np.where(valid_7 & ((s1_7 + s4_7) > eps), s1_7 + s4_7, 1.0)
+    cpr_7 = np.where(valid_7 & ((s1_7 + s4_7) > eps), (s1_7 - s4_7) / denom_7, np.nan)
+
+    # 4. 9x9 window over 16-look cells: 81 * 4.21 = 341.0 looks (or 81 * 3.04 = 246.2 looks)
     p_lh_9 = uniform_filter(np.where(valid_looks, p_lh, 0.0), size=9)
     p_lv_9 = uniform_filter(np.where(valid_looks, p_lv, 0.0), size=9)
     cross_real_9 = uniform_filter(np.where(valid_looks, np.real(cross), 0.0), size=9)
@@ -425,13 +442,16 @@ def multilook_and_compute_stokes(
         "CPR": cpr.astype(np.float32),
         "CPR_3x3": cpr_3.astype(np.float32),
         "CPR_5x5": cpr_5.astype(np.float32),
+        "CPR_7x7": cpr_7.astype(np.float32),
         "CPR_9x9": cpr_9.astype(np.float32),
         "DOP": dop_16.astype(np.float32),
         "DOP_3x3": dop_68.astype(np.float32),
         "DOP_5x5": dop_190.astype(np.float32),
+        "DOP_7x7": dop_206.astype(np.float32),
         "DOP_9x9": dop_246.astype(np.float32),
         "DOP_eff_68_looks": dop_68.astype(np.float32),
         "DOP_eff_190_looks": dop_190.astype(np.float32),
+        "DOP_eff_206_looks": dop_206.astype(np.float32),
         "DOP_eff_246_looks": dop_246.astype(np.float32),
         "DOP_136_looks": dop_68.astype(np.float32),  # Backward-compatible alias for 3x3 window
         "valid_mask": valid_looks.astype(np.uint8)
@@ -884,6 +904,44 @@ def read_lola_pds3_dem(
     return elevation_m, lbl_meta
 
 
+def derive_crop_from_bounding_box(
+    geom_csv_path: Path,
+    bbox: BoundingBoxConfig,
+    padding_lines: int = 100
+) -> Tuple[int, int]:
+    """
+    Derives the radar slant-range line crop (line_start, line_count) from geometry tie points
+    matching the configured crater bounding box.
+    Removes all ad-hoc line crops across all execution phases.
+    """
+    if not geom_csv_path.exists():
+        raise FileNotFoundError(f"Geometry CSV not found: {geom_csv_path}")
+
+    geom_df = pd.read_csv(geom_csv_path)
+    lat_col = [c for c in geom_df.columns if "lat" in c.lower()][0]
+    lon_col = [c for c in geom_df.columns if "lon" in c.lower()][0]
+
+    n_samples = 38
+    geom_df["rec_idx"] = np.arange(len(geom_df)) // n_samples
+    geom_df["slc_line"] = geom_df["rec_idx"] * 32
+
+    match = geom_df[
+        (geom_df[lat_col] >= bbox.lat_min) & (geom_df[lat_col] <= bbox.lat_max) &
+        (geom_df[lon_col] >= bbox.lon_min) & (geom_df[lon_col] <= bbox.lon_max)
+    ]
+    if len(match) == 0:
+        raise ValueError(
+            f"No geometry tie points match the configured target_bounding_box: "
+            f"lat [{bbox.lat_min}, {bbox.lat_max}], lon [{bbox.lon_min}, {bbox.lon_max}]"
+        )
+
+    raw_min_line = int(match["slc_line"].min())
+    raw_max_line = int(match["slc_line"].max())
+    line_start = max(0, raw_min_line - padding_lines)
+    line_count = (raw_max_line - line_start) + (2 * padding_lines)
+    return line_start, line_count
+
+
 def check_coordinate_in_footprint(
     coord_lat: float,
     coord_lon: float,
@@ -1130,30 +1188,15 @@ def run_phase0_ingestion(config: LunaTraceConfig, pds4_dir: Optional[Path] = Non
     print(f"[*] Verifying footprint overlap with target crater bounding box...")
     verify_footprint_overlap(label_meta, config.target_bounding_box)
 
-    # 3. Dynamic Bounding Box Crop (determine line window from geometry tie points)
-    print(f"[*] Determining radar slant-range line crop from geometry tie-points...")
-    geom_df = pd.read_csv(geom_csv_path)
-    lat_c = [c for c in geom_df.columns if "lat" in c.lower()][0]
-    lon_c = [c for c in geom_df.columns if "lon" in c.lower()][0]
-
-    n_samples = 38
-    geom_df["rec_idx"] = np.arange(len(geom_df)) // n_samples
-    geom_df["slc_line"] = geom_df["rec_idx"] * 32
-
-    bbox = config.target_bounding_box
-    match = geom_df[
-        (geom_df[lat_c] >= bbox.lat_min) & (geom_df[lat_c] <= bbox.lat_max) &
-        (geom_df[lon_c] >= bbox.lon_min) & (geom_df[lon_c] <= bbox.lon_max)
-    ]
-
-    if len(match) > 0:
-        line_start = int(match["slc_line"].min())
-        line_end = int(match["slc_line"].max())
-        line_start = max(0, line_start - 100)
-        line_count = (line_end - line_start) + 200
-    else:
-        line_start = 130000
-        line_count = 85000
+    # 3. Slant-Range Crop Derived from Configured Bounding Box
+    print(f"[*] Determining radar slant-range line crop from configured target_bounding_box...")
+    line_start, line_count = derive_crop_from_bounding_box(
+        geom_csv_path=geom_csv_path,
+        bbox=config.target_bounding_box,
+        padding_lines=100
+    )
+    print(f"    - Target BBox: lat [{config.target_bounding_box.lat_min}, {config.target_bounding_box.lat_max}], lon [{config.target_bounding_box.lon_min}, {config.target_bounding_box.lon_max}]")
+    print(f"    - Derived Slant-Range Lines: {line_start} to {line_start + line_count} (count: {line_count})")
 
     print(f"[*] Reading complex SLC channels cropped to lines {line_start} to {line_start + line_count} (height: {line_count})...")
     slc_window = rasterio.windows.Window(0, line_start, 1152, line_count)

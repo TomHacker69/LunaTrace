@@ -1,8 +1,8 @@
 {
   "output_file": "phase1_slant_range_polarimetric_summary.csv",
-  "output_sha256": "60484254a3526fde27d9abf4960e8d24f28d812cfbfa24854176dd3de9891f8a",
-  "timestamp_utc": "2026-10-19T12:39:29.035772+00:00",
-  "git_commit": "d90ed061012481e9d091dfc104cf0294440566df",
+  "output_sha256": "c4d1926f55387caa47e3cf4955e813833ca3f62cbd0872de78cffbd6943d65ff",
+  "timestamp_utc": "2026-10-19T13:09:00.214811+00:00",
+  "git_commit": "23419d1ad2bb69a7896b974c1272c2b30e8ded3d",
   "software_versions": {
     "python": "3.14.7",
     "numpy": "2.5.3",
@@ -14,18 +14,25 @@
   "input_files": {
     "ch2_sar_ncxl_20260403t190328238_d_sli_xx_cp_xx_d18.xml": "092264d149a1416785f269fa231a23d36670335f47e02de9a5e7edce8788241d",
     "ch2_sar_ncxl_20260403t190328238_d_sli_xx_cp_lh_d18.tif": "eefaf6ba581f7ff05b1bdcf1283de83caad1ca1b04d0b2754e7f0cf1c3c36a02",
-    "ch2_sar_ncxl_20260403t190328238_d_sli_xx_cp_lv_d18.tif": "768b565c5522e1dfa9da33fa6041a86f4310d7ce1e6a86daf3d53a2fcc84c5d9"
+    "ch2_sar_ncxl_20260403t190328238_d_sli_xx_cp_lv_d18.tif": "768b565c5522e1dfa9da33fa6041a86f4310d7ce1e6a86daf3d53a2fcc84c5d9",
+    "ch2_sar_ncxl_20260403t190328238_g_sli_xx_cp_xx_d18.csv": "d781d6569d6cd73c0ea3b0db4ff693ebdb59e6a7df95470ce2d076ddf86a82d5"
   },
   "config_snapshot": {},
   "metadata": {
-    "description": "Phase 1 polarimetric summary statistics in radar slant-range geometry with same-window CPR",
+    "description": "Phase 1 polarimetric summary statistics in radar slant-range geometry on config-defined crop",
     "geometry": "radar slant-range (no geocoding)",
+    "raw_line_crop": {
+      "line_start": 131036,
+      "line_count": 82316,
+      "line_end": 213352
+    },
     "snr_mask": "SNR >= 3.0 dB relative to NESZ floor 0.00975",
     "effective_looks": {
-      "native": 3.04,
-      "3x3": 27.36,
-      "5x5": 76.0,
-      "9x9": 246.24
+      "native": 4.21,
+      "3x3": 37.89,
+      "5x5": 105.25,
+      "7x7": 206.29,
+      "9x9": 341.01
     }
   }
 }

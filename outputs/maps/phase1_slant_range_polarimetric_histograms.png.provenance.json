@@ -1,8 +1,8 @@
 {
   "output_file": "phase1_slant_range_polarimetric_histograms.png",
-  "output_sha256": "64ee9fc4dad91c211fc8a2a463483947dcbc2ebfc9d504ee8ae1bf57efa0ea05",
-  "timestamp_utc": "2026-10-19T12:39:39.573343+00:00",
-  "git_commit": "d90ed061012481e9d091dfc104cf0294440566df",
+  "output_sha256": "a717a8bed64bec5298fb0bb7f5cac9ceca2512fbffc3229b628e90cf807723bc",
+  "timestamp_utc": "2026-10-19T13:09:21.245113+00:00",
+  "git_commit": "23419d1ad2bb69a7896b974c1272c2b30e8ded3d",
   "software_versions": {
     "python": "3.14.7",
     "numpy": "2.5.3",
@@ -14,11 +14,12 @@
   "input_files": {
     "ch2_sar_ncxl_20260403t190328238_d_sli_xx_cp_xx_d18.xml": "092264d149a1416785f269fa231a23d36670335f47e02de9a5e7edce8788241d",
     "ch2_sar_ncxl_20260403t190328238_d_sli_xx_cp_lh_d18.tif": "eefaf6ba581f7ff05b1bdcf1283de83caad1ca1b04d0b2754e7f0cf1c3c36a02",
-    "ch2_sar_ncxl_20260403t190328238_d_sli_xx_cp_lv_d18.tif": "768b565c5522e1dfa9da33fa6041a86f4310d7ce1e6a86daf3d53a2fcc84c5d9"
+    "ch2_sar_ncxl_20260403t190328238_d_sli_xx_cp_lv_d18.tif": "768b565c5522e1dfa9da33fa6041a86f4310d7ce1e6a86daf3d53a2fcc84c5d9",
+    "ch2_sar_ncxl_20260403t190328238_g_sli_xx_cp_xx_d18.csv": "d781d6569d6cd73c0ea3b0db4ff693ebdb59e6a7df95470ce2d076ddf86a82d5"
   },
   "config_snapshot": {},
   "metadata": {
-    "description": "4-panel polarimetric histogram figure in radar slant-range geometry with same-window CPR",
+    "description": "4-panel polarimetric histogram figure in radar slant-range geometry on config-defined crop",
     "geometry": "radar slant-range (no geocoding)"
   }
 }
