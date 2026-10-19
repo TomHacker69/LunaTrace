@@ -1,8 +1,8 @@
 {
   "output_file": "phase1_slant_range_mchi_rgb.png",
   "output_sha256": "579a6dec21aa222b1b509da132891c8b190462d112405c5b5d1597e4b94594c7",
-  "timestamp_utc": "2026-10-19T13:09:36.814132+00:00",
-  "git_commit": "23419d1ad2bb69a7896b974c1272c2b30e8ded3d",
+  "timestamp_utc": "2026-10-19T13:50:14.219962+00:00",
+  "git_commit": "527a034da2c71c7e00a9fa1588ec85143fdfcd91",
   "software_versions": {
     "python": "3.14.7",
     "numpy": "2.5.3",

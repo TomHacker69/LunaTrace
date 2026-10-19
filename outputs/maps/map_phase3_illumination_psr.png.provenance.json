@@ -1,8 +1,8 @@
 {
   "output_file": "map_phase3_illumination_psr.png",
   "output_sha256": "bc1648dc1d73658352e5ed8f74fd862203272f1ab779f7249b489e290cba63ff",
-  "timestamp_utc": "2026-10-19T13:14:35.760793+00:00",
-  "git_commit": "23419d1ad2bb69a7896b974c1272c2b30e8ded3d",
+  "timestamp_utc": "2026-10-19T13:57:10.950725+00:00",
+  "git_commit": "527a034da2c71c7e00a9fa1588ec85143fdfcd91",
   "software_versions": {
     "python": "3.14.7",
     "numpy": "2.5.3",
@@ -16,10 +16,10 @@
   },
   "config_snapshot": {
     "paths": {
-      "raw_data_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-209\\luna_test_fixtures0\\raw",
-      "processed_data_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-209\\luna_test_fixtures0\\processed",
-      "outputs_maps_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-209\\luna_test_fixtures0\\maps",
-      "outputs_tables_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-209\\luna_test_fixtures0\\tables",
+      "raw_data_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-210\\luna_test_fixtures0\\raw",
+      "processed_data_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-210\\luna_test_fixtures0\\processed",
+      "outputs_maps_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-210\\luna_test_fixtures0\\maps",
+      "outputs_tables_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-210\\luna_test_fixtures0\\tables",
       "provenance_file": "C:\\Users\\Ankit Singh Tomar\\LunaTrace\\LunaTrace\\DATA_PROVENANCE.md"
     },
     "crs": {

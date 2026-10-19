@@ -23,6 +23,7 @@ from rasterio.transform import Affine
 from scipy.special import betainc, betaincinv
 from scipy.stats import f as f_dist
 from scipy.optimize import brentq
+from scipy.ndimage import label as ndi_label
 
 from src.config_schema import load_config
 from src.pds4_reader import (
@@ -145,38 +146,63 @@ def run_phase1_slant_range():
     invalid_margin_pixels = total_pixels - valid_raw_pixels
 
     # 6. Measured ENL & Runtime Window Sizing (Directive 2)
-    # Autocorrelation-derived ENL: N_cell = 4.21 looks
-    # Conservative patch ENL: N_cell = 3.04 looks
-    n_cell_auto = 4.21
-    n_cell_cons = 3.04
+    # Azimuth line spacing x 8 looks; Range sample spacing x 2 looks
+    line_sp = float(label_meta["line_spacing_m"])       # 0.488911 m
+    pix_sp = float(label_meta["pixel_spacing_m"])       # 1.798755 m
+    inc_deg = float(label_meta["incidence_angle_deg"])  # 25.994365 deg
+    sin_inc = float(np.sin(np.radians(inc_deg)))
+
+    az_cell = line_sp * az_looks                        # 3.911288 m
+    slant_cell = pix_sp * rg_looks                      # 3.597510 m
+    ground_cell = slant_cell / sin_inc                  # 8.208190 m
+    cell_area_slant = az_cell * slant_cell              # 14.0709 m^2
+    cell_area_ground = az_cell * ground_cell            # 32.1046 m^2
+
+    # Single measured ENL: N_cell = 4.21 looks/cell (from complex autocorrelation, confirmed by CPR spread)
+    n_cell = 4.21
 
     # Target looks for 90% acceptance at m <= 0.13 under 2x2 complex Wishart
     target_looks = brentq(lambda n: betainc(1.5, n - 1.0, 0.13**2) - 0.90, 10, 500)
-    cells_needed_auto = int(np.ceil(target_looks / n_cell_auto))
+    cells_needed = int(np.ceil(target_looks / n_cell))
 
-    # Smallest odd boxcar window >= cells_needed_auto
-    w_auto = 1
-    while w_auto * w_auto < cells_needed_auto:
-        w_auto += 2
+    # Smallest odd boxcar window >= cells_needed
+    w_derived = 1
+    while w_derived * w_derived < cells_needed:
+        w_derived += 2
+
+    res_nat_slant = f"{az_cell:.2f}m x {slant_cell:.2f}m"
+    res_nat_ground = f"{az_cell:.2f}m x {ground_cell:.2f}m"
+    res_3x3_slant = f"{3*az_cell:.2f}m x {3*slant_cell:.2f}m"
+    res_3x3_ground = f"{3*az_cell:.2f}m x {3*ground_cell:.2f}m"
+    res_7x7_slant = f"{7*az_cell:.2f}m x {7*slant_cell:.2f}m"
+    res_7x7_ground = f"{7*az_cell:.2f}m x {7*ground_cell:.2f}m"
+    res_9x9_slant = f"{9*az_cell:.2f}m x {9*slant_cell:.2f}m"
+    res_9x9_ground = f"{9*az_cell:.2f}m x {9*ground_cell:.2f}m"
 
     print("\n" + "=" * 80)
-    print("   DIRECTIVE 2: RUNTIME WINDOW SIZING FROM MEASURED ENL")
+    print("   DIRECTIVE 1 & 2: COMPUTED SLANT-RANGE RESOLUTION & WINDOW SIZING (N_cell = 4.21)")
     print("=" * 80)
-    print(f"  - Theoretical Looks Needed for 90% Acceptance at m <= 0.13: N_target = {target_looks:.2f} looks")
-    print(f"  - Measured Single-Cell ENL (Autocorrelation bound):         N_cell   = {n_cell_auto:.2f} looks/cell")
-    print(f"  - Measured Single-Cell ENL (Patch median):                 N_cell   = {n_cell_cons:.2f} looks/cell")
-    print(f"  - Independent Cells Needed at N_cell = {n_cell_auto:.2f}:             ceil({target_looks:.1f}/{n_cell_auto:.2f}) = {cells_needed_auto} cells")
-    print(f"  - Derived Boxcar Window:                                   {w_auto}x{w_auto} ({w_auto*w_auto} cells, {w_auto*20} m x {w_auto*20} m)")
-    eff_looks_7x7 = w_auto * w_auto * n_cell_auto
+    print(f"  - Label Line Spacing (Azimuth):           {line_sp:.6f} m")
+    print(f"  - Label Pixel Spacing (Range):            {pix_sp:.6f} m")
+    print(f"  - Center Incidence Angle:                 {inc_deg:.4f} deg")
+    print(f"  - Native Multilooked Slant-Range Cell:    {res_nat_slant} (area: {cell_area_slant:.2f} m^2)")
+    print(f"  - Native Multilooked Ground-Range Cell:   {res_nat_ground} (area: {cell_area_ground:.2f} m^2)")
+    print(f"  - 3x3 Window Resolution:                  Slant: {res_3x3_slant} | Ground: {res_3x3_ground}")
+    print(f"  - 7x7 Window Resolution:                  Slant: {res_7x7_slant} | Ground: {res_7x7_ground}")
+    print(f"  - 9x9 Window Resolution:                  Slant: {res_9x9_slant} | Ground: {res_9x9_ground}")
+    print(f"  - Target Looks for 90% Acceptance at m <= 0.13: N_target = {target_looks:.2f} looks")
+    print(f"  - Single Cell ENL (N_cell):                     {n_cell:.2f} looks/cell")
+    print(f"  - Independent Cells Needed:                     ceil({target_looks:.1f}/{n_cell:.2f}) = {cells_needed} cells")
+    print(f"  - Derived Optimal Boxcar Window:                {w_derived}x{w_derived} ({w_derived*w_derived} cells)")
+    eff_looks_7x7 = 49.0 * n_cell
     acc_7x7 = float(betainc(1.5, eff_looks_7x7 - 1.0, 0.13**2) * 100.0)
-    print(f"  - Effective Looks for {w_auto}x{w_auto} Window:                         {eff_looks_7x7:.1f} looks (achieves {acc_7x7:.2f}% acceptance at m <= 0.13)")
-    print("  --> N = 4.21 is adopted as default for window sizing; 7x7 is the verified optimal window.")
+    print(f"  - Effective Looks for 7x7 Window:               {eff_looks_7x7:.1f} looks (achieves {acc_7x7:.2f}% acceptance at m <= 0.13)")
 
-    eff_nat = n_cell_auto
-    eff_3x3 = 9.0 * n_cell_auto
-    eff_5x5 = 25.0 * n_cell_auto
-    eff_7x7 = 49.0 * n_cell_auto
-    eff_9x9 = 81.0 * n_cell_auto
+    eff_nat = n_cell
+    eff_3x3 = 9.0 * n_cell
+    eff_5x5 = 25.0 * n_cell
+    eff_7x7 = 49.0 * n_cell
+    eff_9x9 = 81.0 * n_cell
 
     # 7. SNR Masking & Pixel Count Explanation (Directives 4 and 5)
     snr_db = 10.0 * np.log10(np.maximum(s1 / nesz_c0, 1e-6))
@@ -284,7 +310,7 @@ def run_phase1_slant_range():
         ("9x9 Window", eff_9x9, cpr_9x9)
     ]
 
-    print(f"Under Diffuse Lunar Regolith (True CPR = {regolith_cpr0:.3f}, N_cell = {n_cell_auto:.2f}):")
+    print(f"Under Diffuse Lunar Regolith (True CPR = {regolith_cpr0:.3f}, N_cell = {n_cell:.2f}):")
     for name, N, _ in look_specs:
         p95_reg = float(regolith_cpr0 * f_dist.ppf(0.95, 2 * N, 2 * N))
         p_gt_1_reg = float((1.0 - f_dist.cdf(1.0 / regolith_cpr0, 2 * N, 2 * N)) * 100.0)
@@ -296,9 +322,9 @@ def run_phase1_slant_range():
     print("  --> Characterization (Directive 3): Windowed CPR > 1.0 pixels are 'unexplained by speckle',")
     print("      nothing more, until registered LOLA DEM slope and OHRC boulder distributions are available.")
 
-    # 11. Candidate Sets and Upper-Tail P-Value Evaluation (Directives 1, 3, 6)
+    # 11. Candidate Sets, Connected Components & Unpolarized Consistency (Directives 1, 3, 4, 6)
     print("\n" + "=" * 80)
-    print("   DIRECTIVE 6: CANDIDATE SETS & UPPER-TAIL P-VALUES (UNPOLARIZED CONSISTENCY)")
+    print("   DIRECTIVE 3, 4 & 6: CANDIDATE SETS, CLUSTERING & UNPOLARIZED IDENTITY")
     print("=" * 80)
     # Upper-tail p-values under Wishart unpolarized null: P(m_null >= m_obs) = 1 - betainc(1.5, N-1, m_obs^2)
     p_upper_nat = np.where(valid_snr, 1.0 - betainc(1.5, eff_nat - 1.0, np.clip(dop_nat, 0.0, 1.0)**2), np.nan)
@@ -310,35 +336,60 @@ def run_phase1_slant_range():
     p_upper_9x9 = np.where(valid_snr, 1.0 - betainc(1.5, eff_9x9 - 1.0, np.clip(dop_9x9, 0.0, 1.0)**2), np.nan)
     p_lower_9x9 = np.where(valid_snr, betainc(1.5, eff_9x9 - 1.0, np.clip(dop_9x9, 0.0, 1.0)**2), np.nan)
 
-    # Directive 6 Explanation:
-    # Normal lunar regolith is partially polarized (m ~ 0.35 - 0.50); rejecting H0 (p < 0.05) is normal for regolith.
-    # The set of interest for unpolarized/weakly polarized ice candidates is p_upper >= 0.05 (cannot reject unpolarized null).
-    print("Context: Normal lunar regolith is partially polarized (observed m ~ 0.35 - 0.50). Rejecting the pure")
-    print("unpolarized null H0 (upper-tail p < 0.05) is expected across lunar terrain and is NOT an anomaly.")
-    print("The subset of physical interest for ice candidates is pixels that CANNOT reject the unpolarized null (p >= 0.05):\n")
+    # Directive 3 Note: Algebraic Identity at 7x7 Window
+    p_upper_bound_7x7 = float(1.0 - betainc(1.5, eff_7x7 - 1.0, 0.13**2))
+    print(f"Algebraic Identity Note (Directive 3):")
+    print(f"  At the 7x7 window (N = {eff_7x7:.1f} looks), m <= 0.13 implies p_upper >= {p_upper_bound_7x7:.4f} by construction")
+    print(f"  (p_upper(0.13) = 1 - betainc(1.5, {eff_7x7-1.0:.2f}, 0.13^2) = {p_upper_bound_7x7:.4f} > 0.05).")
+    print(f"  Since p_upper(m) decreases monotonically with m, any pixel with m <= 0.13 mathematically satisfies")
+    print(f"  p_upper >= 0.05 identically by algebraic construction, NOT an independent empirical confirmation.\n")
 
-    for w_name, w_N, w_dop, w_cpr, w_pupp in [
-        ("7x7 Window", eff_7x7, dop_7x7, cpr_7x7, p_upper_7x7),
-        ("9x9 Window", eff_9x9, dop_9x9, cpr_9x9, p_upper_9x9)
+    # Directive 4: Connected-Component Clusters (accounting for sliding-window overlap)
+    print("Sliding-Window Overlap Note (Directive 4):")
+    print("  Neighbouring sliding windows overlap by (W - 1) / W along each dimension (85.7% overlap for 7x7).")
+    print("  Reporting raw sliding-window pixel counts overcounts physical features due to spatial correlation.")
+    print("  Candidates are therefore grouped into 8-connected component clusters:\n")
+
+    for w_name, w_N, w_res_slant, w_res_ground, w_dop, w_cpr, w_pupp in [
+        ("7x7 Window", eff_7x7, res_7x7_slant, res_7x7_ground, dop_7x7, cpr_7x7, p_upper_7x7),
+        ("9x9 Window", eff_9x9, res_9x9_slant, res_9x9_ground, dop_9x9, cpr_9x9, p_upper_9x9)
     ]:
         cannot_reject = valid_snr & (w_pupp >= 0.05)
         cnt_cannot_reject = int(np.sum(cannot_reject))
         pct_cannot_reject = (cnt_cannot_reject / valid_snr_pixels) * 100.0
 
-        cand_ice = valid_snr & (w_cpr > 1.0) & (w_dop <= 0.13)
-        cnt_cand_ice = int(np.sum(cand_ice))
+        cand_ice_mask = valid_snr & (w_cpr > 1.0) & (w_dop <= 0.13)
+        cnt_cand_ice = int(np.sum(cand_ice_mask))
         pct_cand_ice = (cnt_cand_ice / valid_snr_pixels) * 100.0
 
-        overlap = cannot_reject & cand_ice
-        cnt_overlap = int(np.sum(overlap))
-        pct_overlap_scene = (cnt_overlap / valid_snr_pixels) * 100.0
-        pct_overlap_cand = (cnt_overlap / cnt_cand_ice) * 100.0 if cnt_cand_ice > 0 else 0.0
+        cpr_gt1_unexplained = int(np.sum(valid_snr & (w_cpr > 1.0)))
 
-        print(f"{w_name} (N = {w_N:.1f} looks, {int(np.sqrt(w_N/n_cell_auto))*20} m resolution):")
-        print(f"  - Cannot reject unpolarized (upper-tail p >= 0.05): {cnt_cannot_reject:,} pixels ({pct_cannot_reject:.4f}% of scene)")
-        print(f"  - Total same-window candidates (CPR > 1 & m <= 0.13):   {cnt_cand_ice:,} pixels ({pct_cand_ice:.4f}% of scene)")
-        print(f"  - Overlap (p >= 0.05 AND CPR > 1 AND m <= 0.13):     {cnt_overlap:,} pixels ({pct_overlap_cand:.2f}% of candidates, {pct_overlap_scene:.4f}% of scene)")
-        print(f"  - CPR > 1 pixels unexplained by speckle:              {int(np.sum(valid_snr & (w_cpr > 1.0))):,} pixels\n")
+        # Connected component clustering (8-connectivity)
+        labeled_cand, num_clusters = ndi_label(cand_ice_mask, structure=np.ones((3, 3), dtype=int))
+        if num_clusters > 0:
+            cluster_sizes = np.bincount(labeled_cand.ravel())[1:]
+            tot_area_slant_m2 = float(np.sum(cluster_sizes) * cell_area_slant)
+            tot_area_ground_m2 = float(np.sum(cluster_sizes) * cell_area_ground)
+            sz_min = int(np.min(cluster_sizes))
+            sz_p25 = float(np.percentile(cluster_sizes, 25))
+            sz_med = float(np.median(cluster_sizes))
+            sz_p75 = float(np.percentile(cluster_sizes, 75))
+            sz_p95 = float(np.percentile(cluster_sizes, 95))
+            sz_max = int(np.max(cluster_sizes))
+        else:
+            cluster_sizes = np.array([0])
+            tot_area_slant_m2 = 0.0
+            tot_area_ground_m2 = 0.0
+            sz_min = sz_p25 = sz_med = sz_p75 = sz_p95 = sz_max = 0
+
+        print(f"{w_name} (N = {w_N:.1f} looks | Slant: {w_res_slant} | Ground: {w_res_ground}):")
+        print(f"  - Cannot reject unpolarized (p_upper >= 0.05):      {cnt_cannot_reject:,} pixels ({pct_cannot_reject:.4f}% of scene)")
+        print(f"  - CPR > 1 unexplained by speckle:                  {cpr_gt1_unexplained:,} pixels")
+        print(f"  - Raw Candidate Pixels (CPR > 1 & m <= 0.13):      {cnt_cand_ice:,} pixels ({pct_cand_ice:.4f}% of scene)")
+        print(f"  - Connected-Component Clusters (8-connectivity):   {num_clusters:,} clusters")
+        print(f"    * Total Cluster Area:                            {tot_area_slant_m2:,.1f} m^2 (slant) | {tot_area_ground_m2:,.1f} m^2 (ground)")
+        print(f"    * Cluster Size (pixels):                         min={sz_min}, p25={sz_p25:.1f}, median={sz_med:.1f}, p75={sz_p75:.1f}, p95={sz_p95:.1f}, max={sz_max}")
+        print(f"    * Cluster Ground Area (m^2):                     min={sz_min*cell_area_ground:.1f}, median={sz_med*cell_area_ground:.1f}, p95={sz_p95*cell_area_ground:.1f}, max={sz_max*cell_area_ground:.1f}\n")
 
     # 12. Candidate F2 Containment Check with Uncertainty Caveat (Directive 6)
     print("=" * 80)
@@ -388,7 +439,7 @@ def run_phase1_slant_range():
     summary_records = [
         {
             "Parameter / Product": "Circular Polarization Ratio (CPR) - Native",
-            "Geometry": "Slant-Range (20m x 20m)",
+            "Geometry": f"Slant-Range ({res_nat_slant} slant, {res_nat_ground} ground)",
             "Effective Looks": f"{eff_nat:.1f}",
             "Mean": round(float(np.mean(cpr_nat_v)), 4),
             "Std": round(float(np.std(cpr_nat_v)), 4),
@@ -401,7 +452,7 @@ def run_phase1_slant_range():
         },
         {
             "Parameter / Product": "Circular Polarization Ratio (CPR) - 7x7 Window",
-            "Geometry": "Slant-Range (140m x 140m)",
+            "Geometry": f"Slant-Range ({res_7x7_slant} slant, {res_7x7_ground} ground)",
             "Effective Looks": f"{eff_7x7:.1f}",
             "Mean": round(float(np.mean(cpr_7x7_v)), 4),
             "Std": round(float(np.std(cpr_7x7_v)), 4),
@@ -414,7 +465,7 @@ def run_phase1_slant_range():
         },
         {
             "Parameter / Product": "Circular Polarization Ratio (CPR) - 9x9 Window",
-            "Geometry": "Slant-Range (180m x 180m)",
+            "Geometry": f"Slant-Range ({res_9x9_slant} slant, {res_9x9_ground} ground)",
             "Effective Looks": f"{eff_9x9:.1f}",
             "Mean": round(float(np.mean(cpr_9x9_v)), 4),
             "Std": round(float(np.std(cpr_9x9_v)), 4),
@@ -427,7 +478,7 @@ def run_phase1_slant_range():
         },
         {
             "Parameter / Product": "Degree of Polarization (DoP) - Native Cell",
-            "Geometry": "Slant-Range (20m x 20m)",
+            "Geometry": f"Slant-Range ({res_nat_slant} slant, {res_nat_ground} ground)",
             "Effective Looks": f"{eff_nat:.1f}",
             "Mean": round(float(np.mean(d_nat_v)), 4),
             "Std": round(float(np.std(d_nat_v)), 4),
@@ -440,7 +491,7 @@ def run_phase1_slant_range():
         },
         {
             "Parameter / Product": "Degree of Polarization (DoP) - 7x7 Window",
-            "Geometry": "Slant-Range (140m x 140m)",
+            "Geometry": f"Slant-Range ({res_7x7_slant} slant, {res_7x7_ground} ground)",
             "Effective Looks": f"{eff_7x7:.1f}",
             "Mean": round(float(np.mean(d_7x7_v)), 4),
             "Std": round(float(np.std(d_7x7_v)), 4),
@@ -453,7 +504,7 @@ def run_phase1_slant_range():
         },
         {
             "Parameter / Product": "Degree of Polarization (DoP) - 9x9 Window",
-            "Geometry": "Slant-Range (180m x 180m)",
+            "Geometry": f"Slant-Range ({res_9x9_slant} slant, {res_9x9_ground} ground)",
             "Effective Looks": f"{eff_9x9:.1f}",
             "Mean": round(float(np.mean(d_9x9_v)), 4),
             "Std": round(float(np.std(d_9x9_v)), 4),
@@ -466,7 +517,7 @@ def run_phase1_slant_range():
         },
         {
             "Parameter / Product": "Raney m-chi: Volume Scattering Fraction (Pv/S1 == 1 - m)",
-            "Geometry": "Slant-Range (20m x 20m)",
+            "Geometry": f"Slant-Range ({res_nat_slant} slant, {res_nat_ground} ground)",
             "Effective Looks": f"{eff_nat:.1f}",
             "Mean": round(float(np.mean(pv_v / s1_v)), 4),
             "Std": round(float(np.std(pv_v / s1_v)), 4),
@@ -479,7 +530,7 @@ def run_phase1_slant_range():
         },
         {
             "Parameter / Product": "Unpolarized Consistency (7x7 Window): P(m_null >= m_obs)",
-            "Geometry": "Slant-Range (140m x 140m)",
+            "Geometry": f"Slant-Range ({res_7x7_slant} slant, {res_7x7_ground} ground)",
             "Effective Looks": f"{eff_7x7:.1f}",
             "Mean": round(float(np.mean(p_upper_7x7[valid_snr])), 4),
             "Std": round(float(np.std(p_upper_7x7[valid_snr])), 4),
@@ -492,7 +543,7 @@ def run_phase1_slant_range():
         },
         {
             "Parameter / Product": "Unpolarized Consistency (9x9 Window): P(m_null >= m_obs)",
-            "Geometry": "Slant-Range (180m x 180m)",
+            "Geometry": f"Slant-Range ({res_9x9_slant} slant, {res_9x9_ground} ground)",
             "Effective Looks": f"{eff_9x9:.1f}",
             "Mean": round(float(np.mean(p_upper_9x9[valid_snr])), 4),
             "Std": round(float(np.std(p_upper_9x9[valid_snr])), 4),
@@ -513,7 +564,13 @@ def run_phase1_slant_range():
         metadata={
             "description": "Phase 1 polarimetric summary statistics in radar slant-range geometry on config-defined crop",
             "geometry": "radar slant-range (no geocoding)",
+            "N_cell": n_cell,
             "raw_line_crop": {"line_start": line_start, "line_count": line_count, "line_end": line_end},
+            "cell_dimensions_m": {
+                "azimuth_multilooked": round(az_cell, 4),
+                "slant_range_multilooked": round(slant_cell, 4),
+                "ground_range_multilooked": round(ground_cell, 4)
+            },
             "snr_mask": "SNR >= 3.0 dB relative to NESZ floor 0.00975",
             "effective_looks": {"native": eff_nat, "3x3": eff_3x3, "5x5": eff_5x5, "7x7": eff_7x7, "9x9": eff_9x9}
         }
@@ -681,6 +738,12 @@ def run_phase1_slant_range():
             metadata={
                 "description": desc,
                 "geometry": "radar slant range (no geocoding or geographic claims)",
+                "N_cell": n_cell,
+                "cell_dimensions_m": {
+                    "azimuth_multilooked": round(az_cell, 4),
+                    "slant_range_multilooked": round(slant_cell, 4),
+                    "ground_range_multilooked": round(ground_cell, 4)
+                },
                 "raw_line_crop": {"line_start": line_start, "line_count": line_count, "line_end": line_end},
                 "snr_mask": "SNR >= 3.0 dB relative to NESZ floor 0.00975"
             }

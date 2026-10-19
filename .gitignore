@@ -11,7 +11,13 @@ data/raw/*
 data/processed/*
 !data/processed/.gitkeep
 
+# Large GeoTIFF outputs (>15MB each, registered in provenance metadata)
+outputs/maps/*.tif
+outputs/maps/*.tif.ovr
+
 # Local environment
 .venv/
 env/
 venv/
+scratch/
+

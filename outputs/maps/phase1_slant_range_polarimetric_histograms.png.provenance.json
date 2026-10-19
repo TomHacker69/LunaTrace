@@ -1,8 +1,8 @@
 {
   "output_file": "phase1_slant_range_polarimetric_histograms.png",
   "output_sha256": "a717a8bed64bec5298fb0bb7f5cac9ceca2512fbffc3229b628e90cf807723bc",
-  "timestamp_utc": "2026-10-19T13:09:21.245113+00:00",
-  "git_commit": "23419d1ad2bb69a7896b974c1272c2b30e8ded3d",
+  "timestamp_utc": "2026-10-19T13:49:57.218815+00:00",
+  "git_commit": "527a034da2c71c7e00a9fa1588ec85143fdfcd91",
   "software_versions": {
     "python": "3.14.7",
     "numpy": "2.5.3",

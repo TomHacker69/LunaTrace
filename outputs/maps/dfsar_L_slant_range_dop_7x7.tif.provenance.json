@@ -1,8 +1,8 @@
 {
   "output_file": "dfsar_L_slant_range_dop_7x7.tif",
   "output_sha256": "3cc31b172e75341feb8f07893866f9f6f9be474de8ed3737d7f320cf50e010fc",
-  "timestamp_utc": "2026-10-19T13:10:29.415941+00:00",
-  "git_commit": "23419d1ad2bb69a7896b974c1272c2b30e8ded3d",
+  "timestamp_utc": "2026-10-19T13:51:16.628299+00:00",
+  "git_commit": "527a034da2c71c7e00a9fa1588ec85143fdfcd91",
   "software_versions": {
     "python": "3.14.7",
     "numpy": "2.5.3",
@@ -21,6 +21,12 @@
   "metadata": {
     "description": "7x7 Window Degree of Polarization (DoP, N=206.3 looks) in slant range",
     "geometry": "radar slant range (no geocoding or geographic claims)",
+    "N_cell": 4.21,
+    "cell_dimensions_m": {
+      "azimuth_multilooked": 3.9113,
+      "slant_range_multilooked": 3.5975,
+      "ground_range_multilooked": 8.2082
+    },
     "raw_line_crop": {
       "line_start": 131036,
       "line_count": 82316,
