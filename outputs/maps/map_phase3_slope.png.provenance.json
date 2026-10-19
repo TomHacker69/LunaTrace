@@ -1,8 +1,8 @@
 {
   "output_file": "map_phase3_slope.png",
   "output_sha256": "60297543ac58c673fdc830a251d352b221e849292e89baac9999015628844a30",
-  "timestamp_utc": "2026-10-19T13:57:06.852120+00:00",
-  "git_commit": "527a034da2c71c7e00a9fa1588ec85143fdfcd91",
+  "timestamp_utc": "2026-10-19T14:57:49.582064+00:00",
+  "git_commit": "14ad5d3f277c9715293ade39dc8f2e7d2e2b3ade",
   "software_versions": {
     "python": "3.14.7",
     "numpy": "2.5.3",
@@ -16,10 +16,10 @@
   },
   "config_snapshot": {
     "paths": {
-      "raw_data_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-210\\luna_test_fixtures0\\raw",
-      "processed_data_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-210\\luna_test_fixtures0\\processed",
-      "outputs_maps_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-210\\luna_test_fixtures0\\maps",
-      "outputs_tables_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-210\\luna_test_fixtures0\\tables",
+      "raw_data_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-211\\luna_test_fixtures0\\raw",
+      "processed_data_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-211\\luna_test_fixtures0\\processed",
+      "outputs_maps_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-211\\luna_test_fixtures0\\maps",
+      "outputs_tables_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-211\\luna_test_fixtures0\\tables",
       "provenance_file": "C:\\Users\\Ankit Singh Tomar\\LunaTrace\\LunaTrace\\DATA_PROVENANCE.md"
     },
     "crs": {
@@ -248,6 +248,18 @@
     },
     "dem_registration": {
       "min_correlation_rho": 0.4
+    },
+    "cluster_baseline": {
+      "random_seed": 42,
+      "monte_carlo_runs": 100,
+      "smoothing_windows": [
+        31,
+        51,
+        101
+      ],
+      "n_cell": 4.21,
+      "cpr_threshold": 1.0,
+      "dop_threshold": 0.13
     }
   },
   "metadata": {
