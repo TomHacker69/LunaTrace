@@ -88,6 +88,8 @@ class TerrainConfig(BaseModel):
     rms_window_size: int = Field(gt=0, default=5)
     contour_levels: List[float] = [-1500.0, -1000.0, -500.0, 0.0, 500.0]
     slope_contour_levels: List[float] = [5.0, 15.0]
+    elevation_plausible_min_m: float = Field(default=-12000.0)
+    elevation_plausible_max_m: float = Field(default=12000.0)
 
 
 class IlluminationConfig(BaseModel):

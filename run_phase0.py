@@ -149,6 +149,18 @@ def run_wishart_monte_carlo(config):
     print(f"  - At N = 136.0 looks: Acceptance = {acc_136:.2f}% (Miss Rate = {100.0-acc_136:.2f}%)")
     print(f"  - At N = 68.4 looks:  Acceptance = {acc_68:.2f}% (Miss Rate = {100.0-acc_68:.2f}%)")
 
+    # Directive 4: Recheck acceptance table for m <= 0.32 at N=27.4, 37.9 and 68.4
+    acc_32_27 = float(betainc(1.5, 27.4 - 1.0, 0.32**2) * 100.0)
+    acc_32_38 = float(betainc(1.5, 37.9 - 1.0, 0.32**2) * 100.0)
+    acc_32_68 = float(betainc(1.5, 68.4 - 1.0, 0.32**2) * 100.0)
+    print(f"\n[+] Recheck of Acceptance Table for m <= 0.32 (Directive 4):")
+    print(f"  - At N = 27.4 looks: Acceptance = {acc_32_27:.2f}% (expected ~87.60%)")
+    print(f"  - At N = 37.9 looks: Acceptance = {acc_32_38:.2f}% (expected ~95.45%)")
+    print(f"  - At N = 68.4 looks: Acceptance = {acc_32_68:.2f}% (expected ~99.78%)")
+    print("  --> Continuous Look Parameter (N): N is NOT rounded at all in code. scipy.special.betainc(a, b, x)")
+    print("      evaluates continuous real floats for b = N - 1.0 via the analytic incomplete beta function")
+    print("      I_x(a, b) = (1/B(a, b)) int_0^x t^{a-1} (1-t)^{b-1} dt, introducing zero rounding bias.")
+
     # Solve for looks needed for 90% acceptance at m <= 0.13
     target_m = 0.13
     m2 = target_m**2
@@ -320,6 +332,7 @@ def evaluate_dop_windowing_and_runtime_resolution(stokes: dict, n_cell_conservat
     dop_nat = stokes["DOP"]
     dop_68 = stokes["DOP_eff_68_looks"]
     dop_190 = stokes["DOP_eff_190_looks"]
+    dop_246 = stokes.get("DOP_eff_246_looks", dop_190)
 
     nesz = 0.009749896
     snr_db = 10.0 * np.log10(np.maximum(s1 / nesz, 1e-6))
@@ -330,16 +343,18 @@ def evaluate_dop_windowing_and_runtime_resolution(stokes: dict, n_cell_conservat
     d_nat_valid = dop_nat[valid_snr & ~np.isnan(dop_nat)]
     d_68_valid = dop_68[valid_snr & ~np.isnan(dop_68)]
     d_190_valid = dop_190[valid_snr & ~np.isnan(dop_190)]
+    d_246_valid = dop_246[valid_snr & ~np.isnan(dop_246)]
 
     obs_nat_q = (float(np.percentile(d_nat_valid, 5)), float(np.percentile(d_nat_valid, 50)), float(np.percentile(d_nat_valid, 95)))
     obs_68_q = (float(np.percentile(d_68_valid, 5)), float(np.percentile(d_68_valid, 50)), float(np.percentile(d_68_valid, 95)))
     obs_190_q = (float(np.percentile(d_190_valid, 5)), float(np.percentile(d_190_valid, 50)), float(np.percentile(d_190_valid, 95)))
+    obs_246_q = (float(np.percentile(d_246_valid, 5)), float(np.percentile(d_246_valid, 50)), float(np.percentile(d_246_valid, 95)))
 
     null_nat_q = wishart_null_quantiles(n_cell_conservative)
     null_auto_q = wishart_null_quantiles(n_cell_autocorr)
     null_68_q = wishart_null_quantiles(eff_3x3_cons)
     null_190_q = wishart_null_quantiles(25.0 * n_cell_conservative)
-    null_runtime_q = wishart_null_quantiles(eff_looks_cons)
+    null_246_q = wishart_null_quantiles(81.0 * n_cell_conservative)
 
     df_quantiles = pd.DataFrame([
         {
@@ -367,10 +382,10 @@ def evaluate_dop_windowing_and_runtime_resolution(stokes: dict, n_cell_conservat
             "Null p95": f"{null_190_q[2]:.3f}", "Observed p95": f"{obs_190_q[2]:.3f}"
         },
         {
-            "Processing Level": f"9x9 Runtime Window (N={eff_looks_cons:.1f} looks)",
-            "Null p5": f"{null_runtime_q[0]:.3f}", "Observed p5": "N/A (Derived)",
-            "Null p50 (Median)": f"{null_runtime_q[1]:.3f}", "Observed p50 (Median)": "N/A (Derived)",
-            "Null p95": f"{null_runtime_q[2]:.3f}", "Observed p95": "N/A (Derived)"
+            "Processing Level": f"9x9 Window (N={81.0*n_cell_conservative:.1f} looks)",
+            "Null p5": f"{null_246_q[0]:.3f}", "Observed p5": f"{obs_246_q[0]:.3f}",
+            "Null p50 (Median)": f"{null_246_q[1]:.3f}", "Observed p50 (Median)": f"{obs_246_q[1]:.3f}",
+            "Null p95": f"{null_246_q[2]:.3f}", "Observed p95": f"{obs_246_q[2]:.3f}"
         }
     ])
     print(df_quantiles.to_string(index=False))
@@ -382,40 +397,90 @@ def evaluate_dop_windowing_and_runtime_resolution(stokes: dict, n_cell_conservat
     print("    --> CONFIRMED: The native 20 m resolution DOP distribution across the lunar surface is remarkably")
     print("        close to pure unpolarized speckle noise with N ~ 3 looks. High speckle variance dominates.")
 
-    # Generate per-pixel p-value map under unpolarized null for ice criterion
-    # P(m_null <= m_obs) = betainc(1.5, N - 1, m_obs^2)
-    p_val_native = np.where(vmask, betainc(1.5, n_cell_conservative - 1.0, np.clip(dop_nat, 0.0, 1.0)**2), np.nan)
-    p_val_map_path = Path("outputs/maps/dfsar_L_dop_pvalue_unpolarized_null.tif")
+    # Directive 3: Generate per-pixel p-value maps exporting both tails explicitly
+    # 1. Lower tail: P(m_null <= m_obs) = betainc(1.5, N - 1, m_obs^2) --> N consistency diagnostic
+    p_val_lower_tail = np.where(vmask, betainc(1.5, n_cell_conservative - 1.0, np.clip(dop_nat, 0.0, 1.0)**2), np.nan)
+    p_lower_map_path = Path("outputs/maps/dfsar_L_dop_pvalue_lower_tail_diagnostic.tif")
     save_geotiff(
-        data=p_val_native.astype(np.float32),
-        output_path=p_val_map_path,
+        data=p_val_lower_tail.astype(np.float32),
+        output_path=p_lower_map_path,
         transform=Affine.identity(),
         crs="+proj=longlat +R=1737400 +no_defs",
         nodata=np.nan
     )
     write_provenance_sidecar(
-        output_path=p_val_map_path,
+        output_path=p_lower_map_path,
         input_paths=[Path("src/pds4_reader.py"), Path("config.yaml")],
         metadata={
-            "description": "Per-pixel p-value map P(m_null <= m_obs) under 2x2 complex Wishart unpolarized null",
+            "description": "Per-pixel lower tail p-value map P(m_null <= m_obs) under 2x2 complex Wishart unpolarized null",
+            "tail": "lower",
             "effective_looks": float(n_cell_conservative),
-            "formula": "p = betainc(1.5, N-1, m_obs^2)",
-            "ice_criterion": "low DoP (m <= 0.13) corresponds to p-value <= 0.0145 at native resolution"
+            "formula": "p_lower = betainc(1.5, N-1, m_obs^2)",
+            "interpretation": "N consistency diagnostic; unusually low p-values indicate polarimetric order or N mismatch"
         }
     )
-    print(f"\n[+] Generated Per-Pixel Null P-Value Map: {p_val_map_path}")
-    print(f"    Median p-value on valid pixels: {float(np.nanmedian(p_val_native)):.4f}")
+
+    # 2. Upper tail: P(m_null >= m_obs) = 1.0 - betainc(1.5, N - 1, m_obs^2) --> 'cannot reject unpolarized' test
+    p_val_upper_tail = np.where(vmask, 1.0 - betainc(1.5, n_cell_conservative - 1.0, np.clip(dop_nat, 0.0, 1.0)**2), np.nan)
+    p_upper_map_path = Path("outputs/maps/dfsar_L_dop_pvalue_upper_tail_unpolarized.tif")
+    save_geotiff(
+        data=p_val_upper_tail.astype(np.float32),
+        output_path=p_upper_map_path,
+        transform=Affine.identity(),
+        crs="+proj=longlat +R=1737400 +no_defs",
+        nodata=np.nan
+    )
+    write_provenance_sidecar(
+        output_path=p_upper_map_path,
+        input_paths=[Path("src/pds4_reader.py"), Path("config.yaml")],
+        metadata={
+            "description": "Per-pixel upper tail p-value map P(m_null >= m_obs) under 2x2 complex Wishart unpolarized null",
+            "tail": "upper",
+            "effective_looks": float(n_cell_conservative),
+            "formula": "p_upper = 1 - betainc(1.5, N-1, m_obs^2)",
+            "interpretation": "Cannot reject unpolarized null hypothesis; large p-values indicate consistency with unpolarized noise"
+        }
+    )
+    print(f"\n[+] Exported Explicit Two-Tailed P-Value Maps (Directive 3):")
+    print(f"    - Upper Tail: {p_upper_map_path} (Median = {float(np.nanmedian(p_val_upper_tail)):.4f}) ['cannot reject unpolarized']")
+    print(f"    - Lower Tail: {p_lower_map_path} (Median = {float(np.nanmedian(p_val_lower_tail)):.4f}) [N consistency diagnostic]")
+
+    # Directive 5: Algebraic Bound Analysis m >= |CPR - 1| / (CPR + 1)
+    print("\n" + "-" * 80)
+    print("   DIRECTIVE 5: ALGEBRAIC BOUND m >= |CPR - 1| / (CPR + 1)")
+    print("-" * 80)
+    cpr_valid_snr = cpr[valid_snr & ~np.isnan(cpr)]
+    cpr_gt_1 = cpr_valid_snr[cpr_valid_snr > 1.0]
+    total_cpr_gt_1 = len(cpr_gt_1)
+    # Threshold for DoP <= 0.13: CPR <= (1 + 0.13) / (1 - 0.13) = 1.13 / 0.87 ~ 1.29885
+    cpr_bound_max = (1.0 + 0.13) / (1.0 - 0.13)
+    eligible_cpr = np.sum(cpr_gt_1 <= cpr_bound_max)
+    forbidden_cpr = np.sum(cpr_gt_1 > cpr_bound_max)
+    pct_eligible = (eligible_cpr / total_cpr_gt_1) * 100.0 if total_cpr_gt_1 > 0 else 0.0
+    pct_forbidden = (forbidden_cpr / total_cpr_gt_1) * 100.0 if total_cpr_gt_1 > 0 else 0.0
+
+    print(f"  Algebraic Bound Derivation:")
+    print(f"    m = sqrt(S2^2 + S3^2 + S4^2) / S1 >= |S4| / S1 = |CPR - 1| / (CPR + 1).")
+    print(f"    To achieve DoP (m) <= 0.13, a pixel algebraically MUST have CPR <= 1.13 / 0.87 = {cpr_bound_max:.5f} (~1.30).")
+    print(f"    Any pixel with CPR > 1.30 is mathematically FORBIDDEN from satisfying DoP <= 0.13.")
+    print(f"\n  Real Scene Valid SNR CPR > 1.0 Pixel Population (Total = {total_cpr_gt_1:,} pixels):")
+    print(f"    - Algebraically Eligible (1.00 < CPR <= 1.30): {eligible_cpr:,} pixels ({pct_eligible:.2f}%)")
+    print(f"    - Algebraically Forbidden (CPR > 1.30):         {forbidden_cpr:,} pixels ({pct_forbidden:.2f}%)")
+    print(f"    --> Exactly {pct_eligible:.2f}% of CPR > 1.0 valid pixels can physically satisfy DoP <= 0.13.")
 
     # Untuned Outlier Counts
     cand_nat = valid_snr & (cpr > 1.0) & (dop_nat <= 0.13)
     cand_68 = valid_snr & (cpr > 1.0) & (dop_68 <= 0.13)
     cand_190 = valid_snr & (cpr > 1.0) & (dop_190 <= 0.13)
+    cand_246 = valid_snr & (cpr > 1.0) & (dop_246 <= 0.13)
 
     c_nat = int(np.sum(cand_nat))
     c_68 = int(np.sum(cand_68))
     c_190 = int(np.sum(cand_190))
+    c_246 = int(np.sum(cand_246))
 
     acc_nat = float(betainc(1.5, n_cell_conservative - 1, 0.13**2)) * 100.0
+    acc_246 = float(betainc(1.5, 81.0 * n_cell_conservative - 1, 0.13**2)) * 100.0
     df_cand = pd.DataFrame([
         {
             "Window / Processing Level": "Native Cell (1 cell)",
@@ -443,6 +508,15 @@ def evaluate_dop_windowing_and_runtime_resolution(stokes: dict, n_cell_conservat
             "Miss Rate (1 - Acc)": f"{100.0 - float(betainc(1.5, 25*n_cell_conservative-1, 0.13**2))*100:.2f}%",
             "Valid SNR Pixels (CPR>1 & DOP<=0.13)": f"{c_190:,}",
             "Fraction of Valid SNR": f"{(c_190 / total_valid_snr) * 100.0:.4f}%"
+        },
+        {
+            "Window / Processing Level": "9x9 Window (81 cells)",
+            "Eff Looks (Cons / Auto)": f"{81*n_cell_conservative:.1f} / {81*n_cell_autocorr:.1f}",
+            "Resolution": "180 m x 180 m",
+            "Wishart Null Acceptance (m<=0.13)": f"{acc_246:.2f}%",
+            "Miss Rate (1 - Acc)": f"{100.0 - acc_246:.2f}%",
+            "Valid SNR Pixels (CPR>1 & DOP<=0.13)": f"{c_246:,}",
+            "Fraction of Valid SNR": f"{(c_246 / total_valid_snr) * 100.0:.4f}%"
         }
     ])
     print("\n--- Valid, SNR-Masked Pixels Satisfying CPR > 1.0 and DOP <= 0.13 ---")
@@ -667,30 +741,55 @@ def main():
     print(f"  - Track-to-Look Angle:              {look_info['orthogonal_angle_deg']:.2f} deg (~90 deg left-looking)")
     print("  --> Hardcoded 'East, +x' removed. Geometry derived per scene from tie points and sensor parameters.")
 
-    # 2. Dynamic search window radius
-    search_radius_m = derive_search_window_radius_m(
-        timing_offset_s=t_err_sec,
-        dem=None,
-        incidence_angle_deg=label_meta["incidence_angle_deg"]
+    # 2. Dynamic search window radius (Directive 1)
+    print("\n[+] Cross-Correlation Search Radius Derivation (Directive 1):")
+    print(f"  - Spacecraft Along-Track Error: <isda:geo_error_time_meters> = {t_err_m:.3f} m (magnitude = {abs(t_err_m):.2f} m)")
+    print(f"  - Spacecraft Incidence Angle:   <isda:incidence_angle> = {label_meta['incidence_angle_deg']:.4f} deg")
+    print("  - Attempting to derive search window without registered DEM:")
+    try:
+        search_radius_m = derive_search_window_radius_m(
+            geo_error_time_meters=t_err_m,
+            incidence_angle_deg=label_meta["incidence_angle_deg"],
+            dem=None
+        )
+    except ValueError as e:
+        print(f"    --> Successfully raised as required: '{e}'")
+
+    # If a DEM were registered (demonstrating with footprint elevation bounds):
+    mock_dem = np.array([[-1500.0, 500.0]], dtype=np.float32)
+    relief_sample_m = float(np.nanmax(mock_dem) - np.nanmin(mock_dem))
+    cot_inc = 1.0 / np.tan(np.radians(label_meta["incidence_angle_deg"]))
+    derived_with_dem = derive_search_window_radius_m(
+        geo_error_time_meters=t_err_m,
+        incidence_angle_deg=label_meta["incidence_angle_deg"],
+        dem=mock_dem
     )
-    print("\n[+] Cross-Correlation Search Radius Derivation:")
-    print(f"  - Along-track timing component: |v_orb * Delta t| = 1538 m/s * {abs(t_err_sec):.3f} s = {abs(t_err_sec)*1538.0:.1f} m")
-    print(f"  - Cross-track relief component: h_relief * cot(25.1 deg) = 1000 m * 2.13 = 2134 m")
-    print(f"  - Dynamic Uncertainty Search Radius: {search_radius_m:.1f} m (satisfies >= 4.4 km)")
-    print("  --> Typed 5000 m removed from config.yaml; search radius is derived at runtime from uncertainty budget.")
+    print(f"  - Formulation with registered DEM (relief = {relief_sample_m:.0f} m):")
+    print(f"    Along-track: |geo_error_time_meters| = {abs(t_err_m):.2f} m")
+    print(f"    Cross-track: relief * cot(inc) = {relief_sample_m:.0f} m * {cot_inc:.3f} = {relief_sample_m*cot_inc:.2f} m")
+    print(f"    Search window radius = {derived_with_dem:.2f} m")
 
     print("\nCode Treatment & Uncertainty Budget:")
     print("  - The along-track timing offset (-3115.97 m) is an unvalidated post-processing residual.")
     print("  - It is NOT applied as an arbitrary coordinate shift.")
     print("  - LOLA DEM is NOT yet registered.")
-    print("  - GEOLOCATION UNCERTAINTY STATUS: UNKNOWN.")
-    print("    Parallax relief displacement Delta_r = Delta_h * cot(theta_inc) cannot be bounded without")
-    print("    the registered terrain elevation profile. Reporting a hand-assumed 4.38 km is rejected.")
+    print("  - GEOLOCATION UNCERTAINTY STATUS: UNKNOWN (pending registered LOLA DEM).")
 
-    # 11. Coordinate Containment Check Demonstration (Directive 10)
+    # 11. Coordinate Containment Check Demonstration (Directive 6)
     print("\n" + "=" * 80)
-    print("   11. CANDIDATE COORDINATE FOOTPRINT CONTAINMENT (16,650 OUTER TIE POINTS)")
+    print("   11. CANDIDATE COORDINATE FOOTPRINT CONTAINMENT (DIRECTIVE 6)")
     print("=" * 80)
+    # Directive 6: Run check_coordinate_in_footprint for (-87.39, 82.31) labelled
+    # "UNVERIFIED candidate from a third-party repository; not given by organizers"
+    cand_lat, cand_lon = -87.39, 82.31
+    cand_desc = "UNVERIFIED candidate from a third-party repository; not given by organizers"
+    res_cand = check_coordinate_in_footprint(cand_lat, cand_lon, label_meta, geom_csv_path=geom_csv_path)
+    status_cand = "INSIDE" if res_cand["is_inside_footprint"] else "OUTSIDE"
+    print(f"  Candidate ({cand_lat:.2f} deg, {cand_lon:.2f} deg) [{cand_desc}]:")
+    print(f"    - Containment: {status_cand}")
+    print(f"    - Distance to swath boundary: {res_cand['distance_to_boundary_m']:.2f} m")
+    print("    - NOTE: Evaluated for containment and boundary distance only. Do NOT choose it as the target.")
+
     test_coords = [
         (-86.510862, 83.925179, "Nominal Swath Centre (XML)"),
         (-87.0, 85.0, "Inside Polar Swath"),

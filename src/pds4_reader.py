@@ -374,8 +374,7 @@ def multilook_and_compute_stokes(
     pol_3_sq = s2_3 ** 2 + s3_3 ** 2 + s4_3 ** 2
     dop_68 = np.where(valid_3 & (s1_3 > eps), np.clip(np.sqrt(np.maximum(0.0, pol_3_sq)) / (s1_3 + eps), 0.0, 1.0), np.nan)
 
-    # 2. 5x5 window over 16-look cells: 25 * 7.6 = 190.0 effective looks (~190 looks)
-    # Required for >= 90% acceptance at m <= 0.13 under 2x2 complex Wishart null distribution
+    # 2. 5x5 window over 16-look cells: 25 * 3.04 ~ 76.0 looks (or 25 * 7.6 = 190.0 looks under nominal looks)
     p_lh_5 = uniform_filter(np.where(valid_looks, p_lh, 0.0), size=5)
     p_lv_5 = uniform_filter(np.where(valid_looks, p_lv, 0.0), size=5)
     cross_real_5 = uniform_filter(np.where(valid_looks, np.real(cross), 0.0), size=5)
@@ -389,6 +388,22 @@ def multilook_and_compute_stokes(
     s4_5 = -2.0 * cross_imag_5 / np.maximum(count_5, 1e-6)
     pol_5_sq = s2_5 ** 2 + s3_5 ** 2 + s4_5 ** 2
     dop_190 = np.where(valid_5 & (s1_5 > eps), np.clip(np.sqrt(np.maximum(0.0, pol_5_sq)) / (s1_5 + eps), 0.0, 1.0), np.nan)
+
+    # 3. 9x9 window over 16-look cells: 81 * 3.04 = 246.2 effective looks
+    # Required for >= 90% acceptance at m <= 0.13 under conservative measured ENL
+    p_lh_9 = uniform_filter(np.where(valid_looks, p_lh, 0.0), size=9)
+    p_lv_9 = uniform_filter(np.where(valid_looks, p_lv, 0.0), size=9)
+    cross_real_9 = uniform_filter(np.where(valid_looks, np.real(cross), 0.0), size=9)
+    cross_imag_9 = uniform_filter(np.where(valid_looks, np.imag(cross), 0.0), size=9)
+    count_9 = uniform_filter(valid_looks.astype(float), size=9)
+    valid_9 = count_9 > 0.5
+
+    s1_9 = (p_lh_9 + p_lv_9) / np.maximum(count_9, 1e-6)
+    s2_9 = (p_lh_9 - p_lv_9) / np.maximum(count_9, 1e-6)
+    s3_9 = 2.0 * cross_real_9 / np.maximum(count_9, 1e-6)
+    s4_9 = -2.0 * cross_imag_9 / np.maximum(count_9, 1e-6)
+    pol_9_sq = s2_9 ** 2 + s3_9 ** 2 + s4_9 ** 2
+    dop_246 = np.where(valid_9 & (s1_9 > eps), np.clip(np.sqrt(np.maximum(0.0, pol_9_sq)) / (s1_9 + eps), 0.0, 1.0), np.nan)
 
     # Mask invalid pixels
     s1_out = np.where(valid_looks, s1, np.nan)
@@ -405,9 +420,28 @@ def multilook_and_compute_stokes(
         "DOP": dop_16.astype(np.float32),
         "DOP_eff_68_looks": dop_68.astype(np.float32),
         "DOP_eff_190_looks": dop_190.astype(np.float32),
+        "DOP_eff_246_looks": dop_246.astype(np.float32),
         "DOP_136_looks": dop_68.astype(np.float32),  # Backward-compatible alias for 3x3 window
         "valid_mask": valid_looks.astype(np.uint8)
     }
+
+
+def compute_polarimetric_algebraic_bound(cpr: np.ndarray) -> np.ndarray:
+    """
+    Computes the fundamental polarimetric lower bound on Degree of Polarization:
+    m >= |CPR - 1| / (CPR + 1)
+    
+    Proof:
+    S1 = I_SC + I_OC, S4 = I_OC - I_SC (or I_SC - I_OC).
+    CPR = I_SC / I_OC.
+    m = sqrt(S2^2 + S3^2 + S4^2) / S1 >= |S4| / S1 = |I_SC - I_OC| / (I_SC + I_OC) = |CPR - 1| / (CPR + 1).
+    Therefore, for any pixel to satisfy m <= 0.13:
+    |CPR - 1| / (CPR + 1) <= 0.13  ==>  CPR <= (1 + 0.13) / (1 - 0.13) = 1.13 / 0.87 ~ 1.29885.
+    Any pixel with CPR > 1.30 is algebraically forbidden from having DOP <= 0.13.
+    """
+    cpr_safe = np.maximum(cpr, 0.0)
+    bound = np.abs(cpr_safe - 1.0) / (cpr_safe + 1.0)
+    return bound
 
 
 def derive_radar_look_vector_in_projected_crs(
@@ -592,31 +626,41 @@ def simulate_radar_intensity_from_dem(
 
 
 def derive_search_window_radius_m(
-    timing_offset_s: float,
-    dem: Optional[np.ndarray],
+    geo_error_time_meters: float,
     incidence_angle_deg: float,
-    orbital_velocity_m_s: float = 1538.0
+    dem: Optional[np.ndarray] = None
 ) -> float:
     """
     Derives the cross-correlation search window radius at runtime from the uncertainty budget:
-    1. Spacecraft along-track timing offset: Delta x_along = |v_orb * Delta t|
-    2. Terrain relief ground-range displacement: Delta r_cross = h_relief * cot(theta_inc)
-    Total search window radius = Delta x_along + Delta r_cross (must be >= 4.4 km).
-    """
-    along_track_err_m = abs(timing_offset_s) * orbital_velocity_m_s
+    1. Spacecraft along-track offset directly from the PDS4 label's <isda:geo_error_time_meters>:
+       Delta x_along = |geo_error_time_meters|
+       (removes typed orbital velocity and timing approximations).
+    2. Terrain relief ground-range displacement computed from the registered DEM over the footprint:
+       Delta r_cross = h_relief * cot(theta_inc) = (max(dem) - min(dem)) / tan(theta_inc)
+       where theta_inc is from the PDS4 label's <isda:incidence_angle>.
+    Total search window radius = Delta x_along + Delta r_cross.
 
-    if dem is not None:
-        valid_dem = dem[~np.isnan(dem)]
-        relief_m = float(np.max(valid_dem) - np.min(valid_dem)) if len(valid_dem) > 0 else 1000.0
-    else:
-        relief_m = 1000.0
+    If the registered DEM is missing (None), raises ValueError.
+    """
+    if dem is None:
+        raise ValueError(
+            "Registered DEM is missing. Geolocation search window cannot be derived without "
+            "a registered DEM to compute relief (max - min) over the footprint."
+        )
+
+    valid_dem = dem[~np.isnan(dem)]
+    if len(valid_dem) == 0:
+        raise ValueError("Registered DEM contains no valid elevation samples.")
+
+    relief_m = float(np.max(valid_dem) - np.min(valid_dem))
+    along_track_err_m = abs(geo_error_time_meters)
 
     inc_rad = np.radians(incidence_angle_deg)
     cot_inc = 1.0 / np.tan(inc_rad)
     cross_track_err_m = relief_m * cot_inc
 
     search_radius_m = float(along_track_err_m + cross_track_err_m)
-    return max(4400.0, search_radius_m)
+    return search_radius_m
 
 
 def cross_correlate_dem_with_sar(
@@ -625,21 +669,23 @@ def cross_correlate_dem_with_sar(
     pixel_spacing_m: float = 20.0,
     min_correlation_rho: float = 0.4,
     search_window_radius_m: Optional[float] = None,
-    timing_offset_s: float = -2.026,
-    incidence_angle_deg: float = 25.1
+    geo_error_time_meters: float = -3115.967394,
+    incidence_angle_deg: float = 25.074092,
+    dem_for_relief: Optional[np.ndarray] = None
 ) -> Dict[str, Any]:
     """
     Cross-correlates a DEM-simulated radar backscatter image with the real SAR S1 image
     to estimate the empirical 2D spatial offset (offset_azimuth_m, offset_range_m).
-    Search window radius is derived at runtime from timing error plus DEM-derived relief * cot(inc).
+    Search window radius is derived at runtime from label geo_error_time_meters plus DEM relief * cot(inc).
     """
     from scipy.signal import correlate2d
 
     if search_window_radius_m is None:
+        dem_rel = dem_for_relief if dem_for_relief is not None else dem_sim
         search_window_radius_m = derive_search_window_radius_m(
-            timing_offset_s=timing_offset_s,
-            dem=dem_sim,
-            incidence_angle_deg=incidence_angle_deg
+            geo_error_time_meters=geo_error_time_meters,
+            incidence_angle_deg=incidence_angle_deg,
+            dem=dem_rel
         )
 
     ny = min(dem_sim.shape[0], sar_s1.shape[0])
@@ -718,21 +764,37 @@ def parse_lola_pds3_label(lbl_path: Path) -> Dict[str, Any]:
     }
 
 
+KNOWN_LOLA_PRODUCT_TYPES = {"TOPOGRAPHY", "DEM", "RADIUS", "RDR"}
+
+
 def read_lola_pds3_dem(
     lbl_path: Path,
-    img_path: Optional[Path] = None
+    img_path: Optional[Path] = None,
+    elevation_min_m: float = -12000.0,
+    elevation_max_m: float = 12000.0
 ) -> Tuple[np.ndarray, Dict[str, Any]]:
     """
     Manually reads a LOLA DEM from PDS3 .lbl and binary .IMG without GDAL.
-    Verifies height formulation against the real label:
-    - If OFFSET is defined as the reference radius (>= 1e5 m or ~1737400 m), height = DN * SCALING_FACTOR
-      (OFFSET is NOT added to surface height).
-    - If OFFSET is an elevation datum shift (< 1e5 m), height = DN * SCALING_FACTOR + OFFSET.
-    - If UNIT is 'KILOMETER', values are scaled to meters.
-    Asserts that lunar surface elevations fall strictly within the physically plausible
-    range [-12000 m, +12000 m] for topographic elevation products.
+    Uses a strict whitelist of known LOLA PRODUCT_TYPE values with explicit height formulas:
+
+    1. 'TOPOGRAPHY' / 'DEM' (Lunar surface height relative to 1737.4 km reference sphere):
+       elevation_m = (DN * SCALING_FACTOR + OFFSET) * unit_scale
+    2. 'RADIUS' / 'RDR' (Radial distance from lunar center of mass):
+       radius_m = (DN * SCALING_FACTOR + OFFSET) * unit_scale
+       elevation_m = radius_m - 1737400.0 m (or DN * SCALING_FACTOR * unit_scale if OFFSET == 1737400.0)
+
+    Unknown PRODUCT_TYPE values strictly raise ValueError.
+    Validates that computed surface elevations fall strictly within the configurable
+    physically plausible range [elevation_min_m, elevation_max_m] (default [-12000 m, +12000 m]).
     """
     lbl_meta = parse_lola_pds3_label(lbl_path)
+    prod_type = lbl_meta["product_type"].upper()
+    if prod_type not in KNOWN_LOLA_PRODUCT_TYPES:
+        raise ValueError(
+            f"Unknown LOLA PRODUCT_TYPE '{prod_type}'. Whitelisted types are: "
+            f"{sorted(KNOWN_LOLA_PRODUCT_TYPES)}. Check against registered .lbl file."
+        )
+
     if img_path is None:
         img_name = lbl_meta["image_file"]
         if not img_name:
@@ -781,28 +843,37 @@ def read_lola_pds3_dem(
     scaling = lbl_meta["scaling_factor"]
     offset = lbl_meta["offset"]
 
-    # Check if OFFSET represents the lunar reference radius (e.g. 1737400 m or 1737.4 km)
-    # In PDS3 LOLA elevation products, elevation = DN * SCALING_FACTOR; adding OFFSET would produce
-    # planetary radius (~1.74e6 m), distorting all radar geometry.
-    is_reference_radius = abs(offset * unit_scale) >= 100000.0
-
-    if is_reference_radius:
-        elevation_m = np.where(valid_mask, raw_dn.astype(np.float32) * (scaling * unit_scale), np.nan)
-    else:
+    # Explicit height formula per whitelisted PRODUCT_TYPE
+    if prod_type in {"TOPOGRAPHY", "DEM"}:
+        # Topography relative to reference sphere: elevation = (DN * scaling + offset) * unit_scale
         elevation_m = np.where(valid_mask, (raw_dn.astype(np.float32) * scaling + offset) * unit_scale, np.nan)
+    elif prod_type in {"RADIUS", "RDR"}:
+        # Planetary radius: if offset is reference radius (~1.7374e6 m), subtract datum
+        offset_m = offset * unit_scale
+        if abs(offset_m) >= 100000.0:
+            # OFFSET is already reference radius (e.g. 1737400 m)
+            elevation_m = np.where(
+                valid_mask,
+                raw_dn.astype(np.float32) * (scaling * unit_scale) + (offset_m - LUNAR_MEAN_RADIUS_M),
+                np.nan
+            )
+        else:
+            elevation_m = np.where(
+                valid_mask,
+                (raw_dn.astype(np.float32) * scaling + offset) * unit_scale - LUNAR_MEAN_RADIUS_M,
+                np.nan
+            )
 
     valid_elev = elevation_m[valid_mask]
     if len(valid_elev) > 0:
         min_elev = float(np.min(valid_elev))
         max_elev = float(np.max(valid_elev))
-        # Lunar topography extremes:
-        # Deepest: Antoniadi crater floor / SPA basin (~ -9.1 km)
-        # Highest: Dirichlet-Jackson crater rim (~ +10.8 km)
-        if min_elev < -12000.0 or max_elev > 12000.0:
+        # Lunar topography extremes check against configured limits
+        if min_elev < elevation_min_m or max_elev > elevation_max_m:
             raise ValueError(
-                f"LOLA DEM elevation out of plausible lunar range [-12000 m, +12000 m]: "
+                f"LOLA DEM elevation out of plausible lunar range [{elevation_min_m} m, {elevation_max_m} m]: "
                 f"min = {min_elev:.1f} m, max = {max_elev:.1f} m. "
-                f"Product Type = '{lbl_meta['product_type']}', Unit = '{unit_str}', "
+                f"Product Type = '{prod_type}', Unit = '{unit_str}', "
                 f"Scaling = {scaling}, Offset = {offset}. "
                 "Verify that reference radius OFFSET was not added to surface elevation."
             )

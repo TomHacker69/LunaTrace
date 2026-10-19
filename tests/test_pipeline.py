@@ -26,7 +26,9 @@ from src.pds4_reader import (
     compute_dem_radar_shadow_and_layover_masks,
     read_lola_pds3_dem,
     parse_lola_pds3_label,
-    check_coordinate_in_footprint
+    check_coordinate_in_footprint,
+    derive_search_window_radius_m,
+    compute_polarimetric_algebraic_bound
 )
 from src.phase1_dfsar import DFSARProcessor, run_phase1
 from src.phase2_ice_detection import IceDetectionEngine, run_phase2
@@ -345,6 +347,54 @@ END
     with pytest.raises(ValueError, match="out of plausible lunar range"):
         read_lola_pds3_dem(lbl_file)
 
+    # 4. Test rejection of unknown PRODUCT_TYPE values (strict whitelist)
+    lbl_unknown = lbl_content.replace('PRODUCT_TYPE = "TOPOGRAPHY"', 'PRODUCT_TYPE = "UNSUPPORTED_TYPE"')
+    lbl_file.write_text(lbl_unknown, encoding="ascii")
+    with pytest.raises(ValueError, match="Unknown LOLA PRODUCT_TYPE"):
+        read_lola_pds3_dem(lbl_file)
+
+
+def test_derive_search_window_dem_requirement():
+    """
+    [SCHEMA/UNIT] Validates that derive_search_window_radius_m:
+    1. Strictly raises ValueError if DEM is missing (dem is None).
+    2. Derives search window radius from label geo_error_time_meters and DEM relief (max - min).
+    """
+    geo_err_m = -3115.967394
+    inc_deg = 25.074092
+
+    # 1. Missing DEM must raise
+    with pytest.raises(ValueError, match="Registered DEM is missing"):
+        derive_search_window_radius_m(geo_error_time_meters=geo_err_m, incidence_angle_deg=inc_deg, dem=None)
+
+    # 2. Registered DEM with relief
+    dem = np.array([[-1500.0, 500.0]], dtype=np.float32)
+    relief_m = 2000.0
+    cot_inc = 1.0 / np.tan(np.radians(inc_deg))
+    expected_radius = abs(geo_err_m) + relief_m * cot_inc
+    radius = derive_search_window_radius_m(geo_error_time_meters=geo_err_m, incidence_angle_deg=inc_deg, dem=dem)
+    assert radius == pytest.approx(expected_radius, rel=1e-4)
+
+
+def test_polarimetric_algebraic_bound():
+    """
+    [SCHEMA/UNIT] Validates the fundamental polarimetric lower bound on DoP:
+    m >= |CPR - 1| / (CPR + 1).
+    Proves that CPR > 1.30 algebraically forbids DoP <= 0.13.
+    """
+    cpr_values = np.array([0.5, 1.0, 1.2, 1.3, 1.5, 2.0, 3.0])
+    bounds = compute_polarimetric_algebraic_bound(cpr_values)
+
+    # At CPR = 1.0, bound is 0.0
+    assert bounds[1] == pytest.approx(0.0, abs=1e-6)
+    # At CPR = 1.29885 (~1.30), bound is exactly 0.13
+    cpr_boundary = (1.0 + 0.13) / (1.0 - 0.13)
+    assert compute_polarimetric_algebraic_bound(np.array([cpr_boundary]))[0] == pytest.approx(0.13, rel=1e-4)
+
+    # Any CPR > 1.30 must have m_min > 0.13
+    assert bounds[4] > 0.13  # CPR = 1.5 -> bound = 0.5 / 2.5 = 0.20
+    assert bounds[5] > 0.13  # CPR = 2.0 -> bound = 1.0 / 3.0 = 0.333
+
 
 def test_coordinate_footprint_containment():
     """
@@ -368,6 +418,11 @@ def test_coordinate_footprint_containment():
     res_center = check_coordinate_in_footprint(-86.510862, 83.925179, label_meta, geom_csv_path=geom_csv_path)
     assert res_center["is_inside_footprint"] is True
     assert res_center["outer_boundary_points_count"] == 16650
+
+    # Directive 6: UNVERIFIED candidate from third-party repository (-87.39, 82.31)
+    res_candidate = check_coordinate_in_footprint(-87.39, 82.31, label_meta, geom_csv_path=geom_csv_path)
+    assert res_candidate["is_inside_footprint"] is True
+    assert 600.0 < res_candidate["distance_to_boundary_m"] < 800.0
 
     res_outside = check_coordinate_in_footprint(0.0, 0.0, label_meta, geom_csv_path=geom_csv_path)
     assert res_outside["is_inside_footprint"] is False

@@ -76,6 +76,8 @@ terrain:
   rms_window_size: 5
   contour_levels: [-1500.0, -1000.0, -500.0, 0.0, 500.0]
   slope_contour_levels: [5.0, 15.0]
+  elevation_plausible_min_m: -12000.0
+  elevation_plausible_max_m: 12000.0
 
 illumination:
   # Ephemeris & Azimuthal Horizon Ray-Tracing Model

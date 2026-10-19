@@ -36,3 +36,24 @@
    Synthetic and benchmark data are quarantined exclusively inside `tests/fixtures/synthetic_crater_generator.py` and are used solely during automated test execution.
 4. **OHRC Boulder Status Handling:**  
    If `ohrc_boulder_density.tif` is not supplied, the pipeline explicitly marks boulder hazards as `UNASSESSED`, disables boulder scoring terms, and evaluates terrain hazard exclusively via topographic slope and RMS roughness.
+
+---
+
+## Polarimetric Algebraic Invariant: Bound on Degree of Polarization
+
+For any partially polarized electromagnetic wave measured by hybrid-polarimetric radar (circular transmit, linear receive):
+$$\text{CPR} = \frac{I_{\text{SC}}}{I_{\text{OC}}} = \frac{S_1 - S_4}{S_1 + S_4}$$
+
+The fourth Stokes parameter satisfies $|S_4| = |I_{\text{SC}} - I_{\text{OC}}|$, while the polarized power satisfies:
+$$I_{\text{pol}} = \sqrt{S_2^2 + S_3^2 + S_4^2} \ge |S_4|$$
+
+Consequently, the Degree of Polarization ($m$) is bounded strictly by:
+$$m = \frac{\sqrt{S_2^2 + S_3^2 + S_4^2}}{S_1} \ge \frac{|S_4|}{S_1} = \frac{|I_{\text{SC}} - I_{\text{OC}}|}{I_{\text{SC}} + I_{\text{OC}}} = \frac{|\text{CPR} - 1|}{\text{CPR} + 1}$$
+
+### Theoretical & Operational Implications:
+1. **Physical Criterion for Low DoP ($m \le 0.13$):**  
+   For a pixel to satisfy $m \le 0.13$:
+   $$\frac{\text{CPR} - 1}{\text{CPR} + 1} \le 0.13 \implies \text{CPR} \le \frac{1 + 0.13}{1 - 0.13} = \frac{1.13}{0.87} \approx 1.29885 \approx 1.30$$
+2. **Algebraic Exclusion:**  
+   Any pixel with $\text{CPR} > 1.30$ is **algebraically forbidden** from having $\text{DoP} \le 0.13$. On the real Chandrayaan-2 DFSAR L-band SLC polar swath, exactly **49.91%** of $\text{CPR} > 1.0$ valid SNR pixels have $\text{CPR} \le 1.30$ and can physically satisfy $\text{DoP} \le 0.13$. The remaining **50.09%** ($\text{CPR} > 1.30$) cannot satisfy this condition under any circumstances due to energy conservation.
+

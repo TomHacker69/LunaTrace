@@ -1,0 +1,25 @@
+{
+  "output_file": "dfsar_L_slant_range_mchi_surface.tif",
+  "output_sha256": "7d92188bc314f7c1032c8d64f41d5d8f89112b2645d375afe9d3136bee8ab30d",
+  "timestamp_utc": "2026-10-19T12:01:23.979151+00:00",
+  "git_commit": "a000b6702157d982d37f653746c08c3e418cc4ec",
+  "software_versions": {
+    "python": "3.14.7",
+    "numpy": "2.5.3",
+    "rasterio": "1.5.2",
+    "scipy": "1.18.1",
+    "pandas": "3.0.6",
+    "pydantic": "2.13.4"
+  },
+  "input_files": {
+    "ch2_sar_ncxl_20260403t190328238_d_sli_xx_cp_xx_d18.xml": "092264d149a1416785f269fa231a23d36670335f47e02de9a5e7edce8788241d",
+    "ch2_sar_ncxl_20260403t190328238_d_sli_xx_cp_lh_d18.tif": "eefaf6ba581f7ff05b1bdcf1283de83caad1ca1b04d0b2754e7f0cf1c3c36a02",
+    "ch2_sar_ncxl_20260403t190328238_d_sli_xx_cp_lv_d18.tif": "768b565c5522e1dfa9da33fa6041a86f4310d7ce1e6a86daf3d53a2fcc84c5d9"
+  },
+  "config_snapshot": {},
+  "metadata": {
+    "description": "Raney m-chi Surface Scattering Power (Ps) in slant range",
+    "geometry": "radar slant range (no geocoding or geographic claims)",
+    "snr_mask": "SNR >= 3.0 dB relative to NESZ floor 0.00975"
+  }
+}
