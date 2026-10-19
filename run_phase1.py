@@ -368,8 +368,8 @@ def run_phase1_slant_range():
         labeled_cand, num_clusters = ndi_label(cand_ice_mask, structure=np.ones((3, 3), dtype=int))
         if num_clusters > 0:
             cluster_sizes = np.bincount(labeled_cand.ravel())[1:]
-            tot_area_slant_m2 = float(np.sum(cluster_sizes) * cell_area_slant)
-            tot_area_ground_m2 = float(np.sum(cluster_sizes) * cell_area_ground)
+            tot_centre_slant_m2 = float(np.sum(cluster_sizes) * cell_area_slant)
+            tot_centre_ground_m2 = float(np.sum(cluster_sizes) * cell_area_ground)
             sz_min = int(np.min(cluster_sizes))
             sz_p25 = float(np.percentile(cluster_sizes, 25))
             sz_med = float(np.median(cluster_sizes))
@@ -378,18 +378,27 @@ def run_phase1_slant_range():
             sz_max = int(np.max(cluster_sizes))
         else:
             cluster_sizes = np.array([0])
-            tot_area_slant_m2 = 0.0
-            tot_area_ground_m2 = 0.0
+            tot_centre_slant_m2 = 0.0
+            tot_centre_ground_m2 = 0.0
             sz_min = sz_p25 = sz_med = sz_p75 = sz_p95 = sz_max = 0
 
+        # Physical extent: window-centre area dilated by the boxcar window footprint
+        w_size = 7 if "7x7" in w_name else 9
+        dilated_mask = ndi.binary_dilation(cand_ice_mask, structure=np.ones((w_size, w_size), dtype=bool))
+        dilated_pixels = int(np.sum(dilated_mask & valid_snr))
+        tot_dilated_slant_m2 = float(dilated_pixels * cell_area_slant)
+        tot_dilated_ground_m2 = float(dilated_pixels * cell_area_ground)
+        exp_factor = (dilated_pixels / cnt_cand_ice) if cnt_cand_ice > 0 else 1.0
+
         print(f"{w_name} (N = {w_N:.1f} looks | Slant: {w_res_slant} | Ground: {w_res_ground}):")
-        print(f"  - Cannot reject unpolarized (p_upper >= 0.05):      {cnt_cannot_reject:,} pixels ({pct_cannot_reject:.4f}% of scene)")
-        print(f"  - CPR > 1 unexplained by speckle:                  {cpr_gt1_unexplained:,} pixels")
-        print(f"  - Raw Candidate Pixels (CPR > 1 & m <= 0.13):      {cnt_cand_ice:,} pixels ({pct_cand_ice:.4f}% of scene)")
-        print(f"  - Connected-Component Clusters (8-connectivity):   {num_clusters:,} clusters")
-        print(f"    * Total Cluster Area:                            {tot_area_slant_m2:,.1f} m^2 (slant) | {tot_area_ground_m2:,.1f} m^2 (ground)")
-        print(f"    * Cluster Size (pixels):                         min={sz_min}, p25={sz_p25:.1f}, median={sz_med:.1f}, p75={sz_p75:.1f}, p95={sz_p95:.1f}, max={sz_max}")
-        print(f"    * Cluster Ground Area (m^2):                     min={sz_min*cell_area_ground:.1f}, median={sz_med*cell_area_ground:.1f}, p95={sz_p95*cell_area_ground:.1f}, max={sz_max*cell_area_ground:.1f}\n")
+        print(f"  - Cannot reject unpolarized (p_upper >= 0.05):          {cnt_cannot_reject:,} pixels ({pct_cannot_reject:.4f}% of scene)")
+        print(f"  - CPR > 1 unexplained by speckle:                      {cpr_gt1_unexplained:,} pixels")
+        print(f"  - Raw Candidate Pixels (CPR > 1 & m <= 0.13):          {cnt_cand_ice:,} pixels ({pct_cand_ice:.4f}% of scene)")
+        print(f"  - Connected-Component Clusters (8-connectivity):       {num_clusters:,} clusters")
+        print(f"    * Window-Centre Area:                                {tot_centre_slant_m2:,.1f} m^2 (slant) | {tot_centre_ground_m2:,.1f} m^2 (ground)")
+        print(f"    * Dilated Physical Extent (dilated by {w_size}x{w_size} window): {tot_dilated_slant_m2:,.1f} m^2 (slant) | {tot_dilated_ground_m2:,.1f} m^2 (ground) [{exp_factor:.2f}x expansion]")
+        print(f"    * Cluster Size (window-centre pixels):               min={sz_min}, p25={sz_p25:.1f}, median={sz_med:.1f}, p75={sz_p75:.1f}, p95={sz_p95:.1f}, max={sz_max}")
+        print(f"    * Cluster Ground Window-Centre Area (m^2):           min={sz_min*cell_area_ground:.1f}, median={sz_med*cell_area_ground:.1f}, p95={sz_p95*cell_area_ground:.1f}, max={sz_max*cell_area_ground:.1f}\n")
 
     # 12. Candidate F2 Containment Check with Uncertainty Caveat (Directive 6)
     print("=" * 80)
