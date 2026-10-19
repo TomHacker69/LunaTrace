@@ -15,6 +15,11 @@ data/processed/*
 outputs/maps/*.tif
 outputs/maps/*.tif.ovr
 
+# Large raster PNGs (>1MB)
+outputs/maps/phase1_slant_range_mchi_rgb.png
+outputs/maps/map_phase3_slope.png
+outputs/maps/map_phase1_S_mchi_decomposition.png
+
 # Local environment
 .venv/
 env/

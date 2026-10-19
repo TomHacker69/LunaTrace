@@ -199,3 +199,11 @@ pds4_ingestion:
 
 dem_registration:
   min_correlation_rho: 0.4
+
+cluster_baseline:
+  random_seed: 42
+  monte_carlo_runs: 100
+  smoothing_windows: [31, 51, 101]
+  n_cell: 4.21
+  cpr_threshold: 1.0
+  dop_threshold: 0.13

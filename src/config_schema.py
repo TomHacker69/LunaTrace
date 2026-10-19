@@ -218,6 +218,15 @@ class DEMRegistrationConfig(BaseModel):
     min_correlation_rho: float = Field(default=0.4, ge=0.0, le=1.0)
 
 
+class ClusterBaselineConfig(BaseModel):
+    random_seed: int = Field(default=42)
+    monte_carlo_runs: int = Field(gt=0, default=100)
+    smoothing_windows: List[int] = Field(default=[31, 51, 101])
+    n_cell: float = Field(gt=0, default=4.21)
+    cpr_threshold: float = Field(gt=0, default=1.0)
+    dop_threshold: float = Field(gt=0, default=0.13)
+
+
 class LunaTraceConfig(BaseModel):
     paths: PathConfig
     crs: CRSConfig
@@ -233,6 +242,7 @@ class LunaTraceConfig(BaseModel):
     target_bounding_box: Optional[BoundingBoxConfig] = None
     pds4_ingestion: PDS4IngestionConfig = Field(default_factory=PDS4IngestionConfig)
     dem_registration: DEMRegistrationConfig = Field(default_factory=DEMRegistrationConfig)
+    cluster_baseline: ClusterBaselineConfig = Field(default_factory=ClusterBaselineConfig)
 
 
 def load_config(config_path: Optional[Path] = None) -> LunaTraceConfig:
