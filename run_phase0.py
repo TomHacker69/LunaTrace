@@ -784,11 +784,11 @@ def main():
     cand_lat, cand_lon = -87.39, 82.31
     cand_desc = "UNVERIFIED candidate from a third-party repository; not given by organizers"
     res_cand = check_coordinate_in_footprint(cand_lat, cand_lon, label_meta, geom_csv_path=geom_csv_path)
-    status_cand = "INSIDE" if res_cand["is_inside_footprint"] else "OUTSIDE"
+    status_cand = res_cand["containment_status"]
     print(f"  Candidate ({cand_lat:.2f} deg, {cand_lon:.2f} deg) [{cand_desc}]:")
     print(f"    - Containment: {status_cand}")
-    print(f"    - Distance to swath boundary: {res_cand['distance_to_boundary_m']:.2f} m")
-    print("    - NOTE: Evaluated for containment and boundary distance only. Do NOT choose it as the target.")
+    print(f"    - Distance to swath boundary: {res_cand['distance_to_boundary_m']:.2f} m (Along-track uncertainty: {res_cand['along_track_uncertainty_m']:.2f} m)")
+    print("    - NOTE: Boundary distance is smaller than along-track uncertainty. Do NOT state INSIDE without that caveat. Do NOT choose it as the target.")
 
     test_coords = [
         (-86.510862, 83.925179, "Nominal Swath Centre (XML)"),

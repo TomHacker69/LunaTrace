@@ -1,8 +1,8 @@
 {
   "output_file": "dfsar_L_slant_range_cpr.tif",
   "output_sha256": "a7c2cc42a7e4d77c3fb3a4cde39101b847378806c92a04ddd44d393f14cd40ee",
-  "timestamp_utc": "2026-10-19T12:00:45.793563+00:00",
-  "git_commit": "a000b6702157d982d37f653746c08c3e418cc4ec",
+  "timestamp_utc": "2026-10-19T12:39:57.299569+00:00",
+  "git_commit": "d90ed061012481e9d091dfc104cf0294440566df",
   "software_versions": {
     "python": "3.14.7",
     "numpy": "2.5.3",
@@ -18,7 +18,7 @@
   },
   "config_snapshot": {},
   "metadata": {
-    "description": "Circular Polarization Ratio (CPR) in slant range",
+    "description": "Circular Polarization Ratio (CPR) - Native in slant range",
     "geometry": "radar slant range (no geocoding or geographic claims)",
     "snr_mask": "SNR >= 3.0 dB relative to NESZ floor 0.00975"
   }

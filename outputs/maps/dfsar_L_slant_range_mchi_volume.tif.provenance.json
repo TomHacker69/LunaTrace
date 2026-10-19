@@ -1,8 +1,8 @@
 {
   "output_file": "dfsar_L_slant_range_mchi_volume.tif",
   "output_sha256": "d96cb681aca5a6b568b9c8b5cf8e6fb860cc6627a12fb4e1ab50a762ccf96eb7",
-  "timestamp_utc": "2026-10-19T12:01:42.987820+00:00",
-  "git_commit": "a000b6702157d982d37f653746c08c3e418cc4ec",
+  "timestamp_utc": "2026-10-19T12:41:02.827264+00:00",
+  "git_commit": "d90ed061012481e9d091dfc104cf0294440566df",
   "software_versions": {
     "python": "3.14.7",
     "numpy": "2.5.3",
@@ -18,7 +18,7 @@
   },
   "config_snapshot": {},
   "metadata": {
-    "description": "Raney m-chi Volume Scattering Power (Pv) in slant range",
+    "description": "Raney m-chi Volume Scattering Power (Pv) in slant range (Pv/S1 == 1-m)",
     "geometry": "radar slant range (no geocoding or geographic claims)",
     "snr_mask": "SNR >= 3.0 dB relative to NESZ floor 0.00975"
   }

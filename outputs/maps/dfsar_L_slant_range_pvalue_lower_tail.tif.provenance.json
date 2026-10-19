@@ -1,8 +1,8 @@
 {
   "output_file": "dfsar_L_slant_range_pvalue_lower_tail.tif",
   "output_sha256": "0a4260b910c5ac9315ccf4aa4e163b399c5a945672d1e3c2857889ca7a12639f",
-  "timestamp_utc": "2026-10-19T12:02:01.925751+00:00",
-  "git_commit": "a000b6702157d982d37f653746c08c3e418cc4ec",
+  "timestamp_utc": "2026-10-19T12:41:20.193746+00:00",
+  "git_commit": "d90ed061012481e9d091dfc104cf0294440566df",
   "software_versions": {
     "python": "3.14.7",
     "numpy": "2.5.3",
@@ -18,7 +18,7 @@
   },
   "config_snapshot": {},
   "metadata": {
-    "description": "Wishart unpolarized null lower tail p-value map in slant range",
+    "description": "Wishart unpolarized null lower tail p-value map (Native N=3.04)",
     "geometry": "radar slant range (no geocoding or geographic claims)",
     "snr_mask": "SNR >= 3.0 dB relative to NESZ floor 0.00975"
   }

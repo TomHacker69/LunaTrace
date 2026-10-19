@@ -1,11 +1,11 @@
 Parameter / Product,Geometry,Effective Looks,Mean,Std,Median (p50),p5,p95,Outlier Condition,Outlier Pixel Count,Outlier Fraction [%]
-Circular Polarization Ratio (CPR),Slant-Range (20m x 20m),3.0,0.4631,0.3886,0.3559,0.1124,1.1678,CPR > 1.0,"319,482",7.54%
-Degree of Polarization (DoP) - Native Cell,Slant-Range (20m x 20m),3.0,0.6049,0.1744,0.625,0.285,0.8564,CPR > 1 & DoP <= 0.13,"8,062",0.1902%
-Degree of Polarization (DoP) - 3x3 Window,Slant-Range (60m x 60m),27.4,0.4917,0.1399,0.5057,0.2356,0.697,CPR > 1 & DoP <= 0.13,"17,388",0.4102%
-Degree of Polarization (DoP) - 5x5 Window,Slant-Range (100m x 100m),76.0,0.4796,0.1309,0.4954,0.2334,0.6655,CPR > 1 & DoP <= 0.13,"17,055",0.4024%
-Degree of Polarization (DoP) - 9x9 Window,Slant-Range (180m x 180m),246.2,0.4741,0.1244,0.4912,0.2368,0.6465,CPR > 1 & DoP <= 0.13,"13,807",0.3257%
-Raney m-chi: Volume Scattering Fraction (Pv/S1),Slant-Range (20m x 20m),3.0,0.3951,0.1744,0.375,0.1436,0.715,N/A,N/A,N/A
-Raney m-chi: Surface Scattering Fraction (Ps/S1),Slant-Range (20m x 20m),3.0,0.519,0.2067,0.5423,0.1373,0.82,N/A,N/A,N/A
-Raney m-chi: Double-Bounce Fraction (Pdb/S1),Slant-Range (20m x 20m),3.0,0.086,0.0935,0.0544,0.0037,0.2795,N/A,N/A,N/A
-Wishart Null Upper Tail: P(m_null >= m_obs),Slant-Range (20m x 20m),3.0,0.528,0.26,0.5249,0.1153,0.9436,p_upper < 0.05,"46,997",1.11%
-Wishart Null Lower Tail: P(m_null <= m_obs),Slant-Range (20m x 20m),3.0,0.472,0.26,0.4751,0.0564,0.8847,p_lower < 0.05,"186,631",4.40%
+Circular Polarization Ratio (CPR) - Native,Slant-Range (20m x 20m),3.0,0.4631,0.3886,0.3559,0.1124,1.1678,CPR > 1.0,"319,482",7.54%
+Circular Polarization Ratio (CPR) - 3x3 Window,Slant-Range (60m x 60m),27.4,0.3973,0.1813,0.3564,0.1891,0.7546,CPR > 1.0,"49,873",1.18%
+Circular Polarization Ratio (CPR) - 9x9 Window,Slant-Range (180m x 180m),246.2,0.3869,0.1442,0.3531,0.2185,0.6869,CPR > 1.0,"4,367",0.10%
+Degree of Polarization (DoP) - Native Cell,Slant-Range (20m x 20m),3.0,0.6049,0.1744,0.625,0.285,0.8564,CPR > 1 & DoP <= 0.13 (same-window),"8,062",0.1902%
+Degree of Polarization (DoP) - 3x3 Window,Slant-Range (60m x 60m),27.4,0.4917,0.1399,0.5057,0.2356,0.697,CPR > 1 & DoP <= 0.13 (same-window),"10,401",0.2454%
+Degree of Polarization (DoP) - 5x5 Window,Slant-Range (100m x 100m),76.0,0.4796,0.1309,0.4954,0.2334,0.6655,CPR > 1 & DoP <= 0.13 (same-window),"7,301",0.1722%
+Degree of Polarization (DoP) - 9x9 Window,Slant-Range (180m x 180m),246.2,0.4741,0.1244,0.4912,0.2368,0.6465,CPR > 1 & DoP <= 0.13 (same-window),"2,471",0.0583%
+Raney m-chi: Volume Scattering Fraction (Pv/S1 == 1 - m),Slant-Range (20m x 20m),3.0,0.3951,0.1744,0.375,0.1436,0.715,Marked Noise-Dominated at Native Looks,N/A,N/A
+Wishart Null Upper Tail (Native): P(m_null >= m_obs),Slant-Range (20m x 20m),3.0,0.528,0.26,0.5249,0.1153,0.9436,p_upper < 0.05,"46,997",1.11%
+Wishart Null Upper Tail (9x9 Window): P(m_null >= m_obs),Slant-Range (180m x 180m),246.2,0.0019,0.0273,0.0,0.0,0.0,p_upper < 0.05,"4,210,063",99.32%

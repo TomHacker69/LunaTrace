@@ -373,6 +373,8 @@ def multilook_and_compute_stokes(
     s4_3 = -2.0 * cross_imag_3 / np.maximum(count_3, 1e-6)
     pol_3_sq = s2_3 ** 2 + s3_3 ** 2 + s4_3 ** 2
     dop_68 = np.where(valid_3 & (s1_3 > eps), np.clip(np.sqrt(np.maximum(0.0, pol_3_sq)) / (s1_3 + eps), 0.0, 1.0), np.nan)
+    denom_3 = np.where(valid_3 & ((s1_3 + s4_3) > eps), s1_3 + s4_3, 1.0)
+    cpr_3 = np.where(valid_3 & ((s1_3 + s4_3) > eps), (s1_3 - s4_3) / denom_3, np.nan)
 
     # 2. 5x5 window over 16-look cells: 25 * 3.04 ~ 76.0 looks (or 25 * 7.6 = 190.0 looks under nominal looks)
     p_lh_5 = uniform_filter(np.where(valid_looks, p_lh, 0.0), size=5)
@@ -388,6 +390,8 @@ def multilook_and_compute_stokes(
     s4_5 = -2.0 * cross_imag_5 / np.maximum(count_5, 1e-6)
     pol_5_sq = s2_5 ** 2 + s3_5 ** 2 + s4_5 ** 2
     dop_190 = np.where(valid_5 & (s1_5 > eps), np.clip(np.sqrt(np.maximum(0.0, pol_5_sq)) / (s1_5 + eps), 0.0, 1.0), np.nan)
+    denom_5 = np.where(valid_5 & ((s1_5 + s4_5) > eps), s1_5 + s4_5, 1.0)
+    cpr_5 = np.where(valid_5 & ((s1_5 + s4_5) > eps), (s1_5 - s4_5) / denom_5, np.nan)
 
     # 3. 9x9 window over 16-look cells: 81 * 3.04 = 246.2 effective looks
     # Required for >= 90% acceptance at m <= 0.13 under conservative measured ENL
@@ -404,6 +408,8 @@ def multilook_and_compute_stokes(
     s4_9 = -2.0 * cross_imag_9 / np.maximum(count_9, 1e-6)
     pol_9_sq = s2_9 ** 2 + s3_9 ** 2 + s4_9 ** 2
     dop_246 = np.where(valid_9 & (s1_9 > eps), np.clip(np.sqrt(np.maximum(0.0, pol_9_sq)) / (s1_9 + eps), 0.0, 1.0), np.nan)
+    denom_9 = np.where(valid_9 & ((s1_9 + s4_9) > eps), s1_9 + s4_9, 1.0)
+    cpr_9 = np.where(valid_9 & ((s1_9 + s4_9) > eps), (s1_9 - s4_9) / denom_9, np.nan)
 
     # Mask invalid pixels
     s1_out = np.where(valid_looks, s1, np.nan)
@@ -417,7 +423,13 @@ def multilook_and_compute_stokes(
         "S3": s3_out.astype(np.float32),
         "S4": s4_out.astype(np.float32),
         "CPR": cpr.astype(np.float32),
+        "CPR_3x3": cpr_3.astype(np.float32),
+        "CPR_5x5": cpr_5.astype(np.float32),
+        "CPR_9x9": cpr_9.astype(np.float32),
         "DOP": dop_16.astype(np.float32),
+        "DOP_3x3": dop_68.astype(np.float32),
+        "DOP_5x5": dop_190.astype(np.float32),
+        "DOP_9x9": dop_246.astype(np.float32),
         "DOP_eff_68_looks": dop_68.astype(np.float32),
         "DOP_eff_190_looks": dop_190.astype(np.float32),
         "DOP_eff_246_looks": dop_246.astype(np.float32),
@@ -764,7 +776,7 @@ def parse_lola_pds3_label(lbl_path: Path) -> Dict[str, Any]:
     }
 
 
-KNOWN_LOLA_PRODUCT_TYPES = {"TOPOGRAPHY", "DEM", "RADIUS", "RDR"}
+KNOWN_LOLA_PRODUCT_TYPES = {"TOPOGRAPHY", "DEM"}
 
 
 def read_lola_pds3_dem(
@@ -775,25 +787,33 @@ def read_lola_pds3_dem(
 ) -> Tuple[np.ndarray, Dict[str, Any]]:
     """
     Manually reads a LOLA DEM from PDS3 .lbl and binary .IMG without GDAL.
-    Uses a strict whitelist of known LOLA PRODUCT_TYPE values with explicit height formulas:
-
-    1. 'TOPOGRAPHY' / 'DEM' (Lunar surface height relative to 1737.4 km reference sphere):
-       elevation_m = (DN * SCALING_FACTOR + OFFSET) * unit_scale
-    2. 'RADIUS' / 'RDR' (Radial distance from lunar center of mass):
-       radius_m = (DN * SCALING_FACTOR + OFFSET) * unit_scale
-       elevation_m = radius_m - 1737400.0 m (or DN * SCALING_FACTOR * unit_scale if OFFSET == 1737400.0)
-
-    Unknown PRODUCT_TYPE values strictly raise ValueError.
-    Validates that computed surface elevations fall strictly within the configurable
-    physically plausible range [elevation_min_m, elevation_max_m] (default [-12000 m, +12000 m]).
+    Strictly adheres to lunar polarimetry and altimetry specifications:
+    1. Only verified height products ('TOPOGRAPHY' / 'DEM') are supported.
+       Unverified branches (e.g. RADIUS, RDR) are removed pending verification against a real registered label.
+    2. For height products, elevation relative to reference sphere is:
+       elevation_m = DN * SCALING_FACTOR * unit_scale
+       (DO NOT add OFFSET for height products).
+    3. Prints PRODUCT_TYPE, UNIT, SCALING_FACTOR, and OFFSET verbatim from the label.
+    4. Computes and logs elevation min/max for the crop.
+    5. Validates that surface elevations fall strictly within [elevation_min_m, elevation_max_m].
     """
     lbl_meta = parse_lola_pds3_label(lbl_path)
     prod_type = lbl_meta["product_type"].upper()
     if prod_type not in KNOWN_LOLA_PRODUCT_TYPES:
         raise ValueError(
-            f"Unknown LOLA PRODUCT_TYPE '{prod_type}'. Whitelisted types are: "
-            f"{sorted(KNOWN_LOLA_PRODUCT_TYPES)}. Check against registered .lbl file."
+            f"Unverified or unsupported LOLA PRODUCT_TYPE '{prod_type}'. "
+            f"Whitelisted verified height types are: {sorted(KNOWN_LOLA_PRODUCT_TYPES)}. "
+            "Wait for a real registered LOLA .lbl file before adding new product branches."
         )
+
+    # Print label parameters verbatim
+    print(
+        f"[+] LOLA PDS3 Label Parsed Verbatim ({lbl_path.name}):\n"
+        f"    PRODUCT_TYPE   = {prod_type}\n"
+        f"    UNIT           = {lbl_meta['unit']}\n"
+        f"    SCALING_FACTOR = {lbl_meta['scaling_factor']}\n"
+        f"    OFFSET         = {lbl_meta['offset']}"
+    )
 
     if img_path is None:
         img_name = lbl_meta["image_file"]
@@ -843,39 +863,22 @@ def read_lola_pds3_dem(
     scaling = lbl_meta["scaling_factor"]
     offset = lbl_meta["offset"]
 
-    # Explicit height formula per whitelisted PRODUCT_TYPE
-    if prod_type in {"TOPOGRAPHY", "DEM"}:
-        # Topography relative to reference sphere: elevation = (DN * scaling + offset) * unit_scale
-        elevation_m = np.where(valid_mask, (raw_dn.astype(np.float32) * scaling + offset) * unit_scale, np.nan)
-    elif prod_type in {"RADIUS", "RDR"}:
-        # Planetary radius: if offset is reference radius (~1.7374e6 m), subtract datum
-        offset_m = offset * unit_scale
-        if abs(offset_m) >= 100000.0:
-            # OFFSET is already reference radius (e.g. 1737400 m)
-            elevation_m = np.where(
-                valid_mask,
-                raw_dn.astype(np.float32) * (scaling * unit_scale) + (offset_m - LUNAR_MEAN_RADIUS_M),
-                np.nan
-            )
-        else:
-            elevation_m = np.where(
-                valid_mask,
-                (raw_dn.astype(np.float32) * scaling + offset) * unit_scale - LUNAR_MEAN_RADIUS_M,
-                np.nan
-            )
+    # Explicit height formula for verified height products: do NOT add OFFSET
+    elevation_m = np.where(valid_mask, raw_dn.astype(np.float32) * (scaling * unit_scale), np.nan)
 
     valid_elev = elevation_m[valid_mask]
     if len(valid_elev) > 0:
         min_elev = float(np.min(valid_elev))
         max_elev = float(np.max(valid_elev))
+        print(f"[+] LOLA DEM Elevation for crop: min = {min_elev:.2f} m, max = {max_elev:.2f} m")
+
         # Lunar topography extremes check against configured limits
         if min_elev < elevation_min_m or max_elev > elevation_max_m:
             raise ValueError(
                 f"LOLA DEM elevation out of plausible lunar range [{elevation_min_m} m, {elevation_max_m} m]: "
                 f"min = {min_elev:.1f} m, max = {max_elev:.1f} m. "
                 f"Product Type = '{prod_type}', Unit = '{unit_str}', "
-                f"Scaling = {scaling}, Offset = {offset}. "
-                "Verify that reference radius OFFSET was not added to surface elevation."
+                f"Scaling = {scaling}, Offset = {offset}."
             )
 
     return elevation_m, lbl_meta
@@ -891,6 +894,7 @@ def check_coordinate_in_footprint(
     Computes whether the product footprint contains a given candidate coordinate.
     Builds the footprint polygon from the outer boundary tie points of the 38 x 8,289 grid
     (16,650 outer boundary points) in Polar Stereographic projected coordinates (EPSG:3032).
+    Evaluates boundary distance against along-track spacecraft timing uncertainty (geo_error_time_meters).
     """
     source_crs = f"+proj=longlat +R={LUNAR_MEAN_RADIUS_M} +no_defs"
     target_crs = f"+proj=stere +lat_0=-90 +lon_0=0 +k=1 +x_0=0 +y_0=0 +R={LUNAR_MEAN_RADIUS_M} +units=m +no_defs"
@@ -936,11 +940,25 @@ def check_coordinate_in_footprint(
     vertex_dists = np.sqrt((poly_pts[:, 0] - px)**2 + (poly_pts[:, 1] - py)**2)
     min_dist_m = float(np.min(vertex_dists))
 
+    along_track_err_m = abs(float(label_meta.get("geo_error_time_meters", 3115.967394)))
+    if is_inside:
+        if min_dist_m < along_track_err_m:
+            containment_status = (
+                f"possibly covered; boundary distance {min_dist_m:.0f} m is smaller "
+                f"than the along-track uncertainty of {along_track_err_m:.0f} m"
+            )
+        else:
+            containment_status = "INSIDE"
+    else:
+        containment_status = "OUTSIDE"
+
     return {
         "candidate_latitude": float(coord_lat),
         "candidate_longitude": float(coord_lon),
         "is_inside_footprint": is_inside,
+        "containment_status": containment_status,
         "distance_to_boundary_m": min_dist_m,
+        "along_track_uncertainty_m": along_track_err_m,
         "outer_boundary_points_count": len(bx)
     }
 

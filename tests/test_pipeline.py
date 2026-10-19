@@ -315,13 +315,13 @@ END
     assert np.isnan(elev_parsed[0, 0]), "Missing pixel must be masked as NaN"
     np.testing.assert_allclose(elev_parsed[1:, 1:], elev_true[1:, 1:], atol=0.5)
 
-    # 2. Reference Radius label (OFFSET = 1737400.0 meters)
-    # The reader must NOT add 1737400.0 to elevation; elevations must remain in [-2000, 1000] m
-    lbl_ref_radius = f"""PDS_VERSION_ID = PDS3
+    # 2. Height product with OFFSET present in label:
+    # Directive 5: For height products, reader must NOT add OFFSET; elevation remains DN * SCALING_FACTOR
+    lbl_dem_offset = f"""PDS_VERSION_ID = PDS3
 RECORD_TYPE = FIXED_LENGTH
 RECORD_BYTES = {samples * 2}
 FILE_RECORDS = {lines}
-PRODUCT_TYPE = "RDR"
+PRODUCT_TYPE = "DEM"
 ^IMAGE = "{img_file.name}"
 OBJECT = IMAGE
   LINES = {lines}
@@ -334,10 +334,10 @@ OBJECT = IMAGE
 END_OBJECT = IMAGE
 END
 """
-    lbl_file.write_text(lbl_ref_radius, encoding="ascii")
+    lbl_file.write_text(lbl_dem_offset, encoding="ascii")
     elev_ref, meta_ref = read_lola_pds3_dem(lbl_file)
     assert meta_ref["offset"] == 1737400.0
-    # Must match true elevation without being shifted by 1.737 million meters
+    # Must NOT add 1737400.0 to elevation
     np.testing.assert_allclose(elev_ref[1:, 1:], elev_true[1:, 1:], atol=0.5)
 
     # 3. Test rejection of unphysical elevations (< -12000 m or > +12000 m)
@@ -347,10 +347,10 @@ END
     with pytest.raises(ValueError, match="out of plausible lunar range"):
         read_lola_pds3_dem(lbl_file)
 
-    # 4. Test rejection of unknown PRODUCT_TYPE values (strict whitelist)
-    lbl_unknown = lbl_content.replace('PRODUCT_TYPE = "TOPOGRAPHY"', 'PRODUCT_TYPE = "UNSUPPORTED_TYPE"')
+    # 4. Test rejection of unverified PRODUCT_TYPE values (e.g., RDR or unsupported types)
+    lbl_unknown = lbl_content.replace('PRODUCT_TYPE = "TOPOGRAPHY"', 'PRODUCT_TYPE = "RDR"')
     lbl_file.write_text(lbl_unknown, encoding="ascii")
-    with pytest.raises(ValueError, match="Unknown LOLA PRODUCT_TYPE"):
+    with pytest.raises(ValueError, match="Unverified or unsupported LOLA PRODUCT_TYPE"):
         read_lola_pds3_dem(lbl_file)
 
 
@@ -423,6 +423,7 @@ def test_coordinate_footprint_containment():
     res_candidate = check_coordinate_in_footprint(-87.39, 82.31, label_meta, geom_csv_path=geom_csv_path)
     assert res_candidate["is_inside_footprint"] is True
     assert 600.0 < res_candidate["distance_to_boundary_m"] < 800.0
+    assert "possibly covered; boundary distance 713 m is smaller than the along-track uncertainty of 3116 m" in res_candidate["containment_status"]
 
     res_outside = check_coordinate_in_footprint(0.0, 0.0, label_meta, geom_csv_path=geom_csv_path)
     assert res_outside["is_inside_footprint"] is False

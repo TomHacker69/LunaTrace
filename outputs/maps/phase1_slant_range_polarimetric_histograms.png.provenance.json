@@ -1,8 +1,8 @@
 {
   "output_file": "phase1_slant_range_polarimetric_histograms.png",
-  "output_sha256": "2284664bb6cef8570b8c6814031fa9cd1b435ee6db30022aa88168bb213d5539",
-  "timestamp_utc": "2026-10-19T12:00:25.094489+00:00",
-  "git_commit": "a000b6702157d982d37f653746c08c3e418cc4ec",
+  "output_sha256": "64ee9fc4dad91c211fc8a2a463483947dcbc2ebfc9d504ee8ae1bf57efa0ea05",
+  "timestamp_utc": "2026-10-19T12:39:39.573343+00:00",
+  "git_commit": "d90ed061012481e9d091dfc104cf0294440566df",
   "software_versions": {
     "python": "3.14.7",
     "numpy": "2.5.3",
@@ -18,7 +18,7 @@
   },
   "config_snapshot": {},
   "metadata": {
-    "description": "4-panel polarimetric histogram figure in radar slant-range geometry",
+    "description": "4-panel polarimetric histogram figure in radar slant-range geometry with same-window CPR",
     "geometry": "radar slant-range (no geocoding)"
   }
 }

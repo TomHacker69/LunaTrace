@@ -1,8 +1,8 @@
 {
   "output_file": "phase1_slant_range_mchi_rgb.png",
-  "output_sha256": "04ac8a321fdef6b0d3707e18ea636badfc20878049dcad5d2f05a1517295779e",
-  "timestamp_utc": "2026-10-19T12:00:36.122271+00:00",
-  "git_commit": "a000b6702157d982d37f653746c08c3e418cc4ec",
+  "output_sha256": "05a9b0d956d098f53a5a4dd9466282329ae44e27e75d924d16d041891fb27277",
+  "timestamp_utc": "2026-10-19T12:39:48.976495+00:00",
+  "git_commit": "d90ed061012481e9d091dfc104cf0294440566df",
   "software_versions": {
     "python": "3.14.7",
     "numpy": "2.5.3",
@@ -18,7 +18,7 @@
   },
   "config_snapshot": {},
   "metadata": {
-    "description": "Raney m-chi RGB composite in radar slant-range geometry",
+    "description": "Raney m-chi RGB composite in radar slant-range geometry (Pv/S1 marked noise-dominated at native looks)",
     "geometry": "radar slant-range (no geocoding)"
   }
 }

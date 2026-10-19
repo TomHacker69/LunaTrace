@@ -1,8 +1,8 @@
 {
   "output_file": "dfsar_L_slant_range_dop_3x3.tif",
   "output_sha256": "37a903168e04263979abd51ddbef63c94ad5225480fa03279fdc07ad2b28e693",
-  "timestamp_utc": "2026-10-19T12:01:05.224942+00:00",
-  "git_commit": "a000b6702157d982d37f653746c08c3e418cc4ec",
+  "timestamp_utc": "2026-10-19T12:40:30.525843+00:00",
+  "git_commit": "d90ed061012481e9d091dfc104cf0294440566df",
   "software_versions": {
     "python": "3.14.7",
     "numpy": "2.5.3",

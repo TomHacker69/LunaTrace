@@ -1,8 +1,8 @@
 {
   "output_file": "phase1_slant_range_polarimetric_summary.csv",
-  "output_sha256": "f311032dcf35670197ac708d4b611c25ebf1753a7d2846212a1030a8e95228bf",
-  "timestamp_utc": "2026-10-19T12:00:13.925671+00:00",
-  "git_commit": "a000b6702157d982d37f653746c08c3e418cc4ec",
+  "output_sha256": "60484254a3526fde27d9abf4960e8d24f28d812cfbfa24854176dd3de9891f8a",
+  "timestamp_utc": "2026-10-19T12:39:29.035772+00:00",
+  "git_commit": "d90ed061012481e9d091dfc104cf0294440566df",
   "software_versions": {
     "python": "3.14.7",
     "numpy": "2.5.3",
@@ -18,7 +18,7 @@
   },
   "config_snapshot": {},
   "metadata": {
-    "description": "Phase 1 polarimetric summary statistics in radar slant-range geometry",
+    "description": "Phase 1 polarimetric summary statistics in radar slant-range geometry with same-window CPR",
     "geometry": "radar slant-range (no geocoding)",
     "snr_mask": "SNR >= 3.0 dB relative to NESZ floor 0.00975",
     "effective_looks": {

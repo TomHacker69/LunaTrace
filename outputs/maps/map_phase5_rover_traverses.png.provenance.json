@@ -1,8 +1,8 @@
 {
   "output_file": "map_phase5_rover_traverses.png",
   "output_sha256": "115a94bc0c7909479f292692e60ed7766b6d417e033712f37a80888450f6bbdc",
-  "timestamp_utc": "2026-10-18T23:26:48.573177+00:00",
-  "git_commit": "5882ef0e37f3ff78a6094a66e56528fef7754c79",
+  "timestamp_utc": "2026-10-19T12:43:14.702034+00:00",
+  "git_commit": "d90ed061012481e9d091dfc104cf0294440566df",
   "software_versions": {
     "python": "3.14.7",
     "numpy": "2.5.3",
@@ -21,10 +21,10 @@
   },
   "config_snapshot": {
     "paths": {
-      "raw_data_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-205\\luna_test_fixtures0\\raw",
-      "processed_data_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-205\\luna_test_fixtures0\\processed",
-      "outputs_maps_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-205\\luna_test_fixtures0\\maps",
-      "outputs_tables_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-205\\luna_test_fixtures0\\tables",
+      "raw_data_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-208\\luna_test_fixtures0\\raw",
+      "processed_data_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-208\\luna_test_fixtures0\\processed",
+      "outputs_maps_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-208\\luna_test_fixtures0\\maps",
+      "outputs_tables_dir": "C:\\Users\\Ankit Singh Tomar\\AppData\\Local\\Temp\\pytest-of-Ankit Singh Tomar\\pytest-208\\luna_test_fixtures0\\tables",
       "provenance_file": "C:\\Users\\Ankit Singh Tomar\\LunaTrace\\LunaTrace\\DATA_PROVENANCE.md"
     },
     "crs": {
@@ -107,7 +107,9 @@
       "slope_contour_levels": [
         5.0,
         15.0
-      ]
+      ],
+      "elevation_plausible_min_m": -12000.0,
+      "elevation_plausible_max_m": 12000.0
     },
     "illumination": {
       "azimuth_count": 72,
