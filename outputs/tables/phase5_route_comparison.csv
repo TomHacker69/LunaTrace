@@ -1,4 +1,4 @@
 Strategy,Algorithm,Distance (m),Time (h),Shadow Time (h),Max Slope (deg),Min SoC [%],Reserve Margin [%],Feasibility
-Shortest Path (Distance-Optimal),A* (8-connected),7386.6,25.65,0.69,10.3,64.2,44.2,FEASIBLE
-Safest Path (Slope-Averse),A* (8-connected),9077.0,31.52,1.28,5.54,72.9,52.9,FEASIBLE
-Best-Illuminated Path (Solar-Tracking),A* (8-connected),8542.1,29.66,0.42,8.43,81.7,61.7,FEASIBLE
+Shortest Path (Distance-Optimal),A* (8-connected),7016.9,24.36,0.79,9.46,61.3,41.3,FEASIBLE
+Safest Path (Slope-Averse),A* (8-connected),7766.7,26.97,0.79,5.01,71.7,51.7,FEASIBLE
+Best-Illuminated Path (Solar-Tracking),A* (8-connected),7992.9,27.75,0.39,5.56,86.7,66.7,FEASIBLE

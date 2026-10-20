@@ -1,4 +1,4 @@
 Rank,Site Name,Grid X (m),Grid Y (m),Elevation (m),Slope (deg),RMS Roughness (m),Solar Illumination [%],Earth LOS Visibility [%],Distance to Ice (m),OHRC Boulder Status,Composite MCE Score
-1,Site 1 (Recommended),83010.0,7550.0,-2648.0,0.0,0.69,100.0,100.0,4994.7,UNASSESSED,0.9919
-2,Site 2 (Alternative),80730.0,9030.0,-2727.5,0.0,1.32,93.9,100.0,6622.4,UNASSESSED,0.9694
-3,Site 3 (Contingency),80410.0,7710.0,-2740.5,0.0,1.6,87.5,98.8,7275.7,UNASSESSED,0.9483
+1,Site 1 (Recommended),82810.0,7430.0,-2649.5,0.0,1.62,100.0,100.0,6688.0,UNASSESSED,0.9903
+2,Site 2 (Alternative),79690.0,10950.0,-2724.5,0.0,3.37,89.2,100.0,7353.9,UNASSESSED,0.9528
+3,Site 3 (Contingency),81770.0,10630.0,-2735.5,0.25,2.45,88.1,82.3,5483.4,UNASSESSED,0.9112

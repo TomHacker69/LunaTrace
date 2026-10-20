@@ -514,25 +514,30 @@ def execute_mission_pipeline(
     print("   SAVING COMPACT PRECOMPUTED MISSION ARRAYS TO RESULTS/ (< 50 MB)")
     print("=" * 80)
 
-    # Downsampled compact arrays
+    # Downsampled compact arrays (< 1 MB per file for Git and fast Streamlit visualization)
+    step = 2
+    path_short_arr = (np.array(path_shortest, dtype=np.float32) / step).astype(np.int32)
+    path_safe_arr = (np.array(path_safest, dtype=np.float32) / step).astype(np.int32)
+    path_illum_arr = (np.array(path_illuminated, dtype=np.float32) / step).astype(np.int32)
+
     np.savez_compressed(
         results_dir / "mission_full_results.npz",
-        dem=dem.astype(np.float32),
-        slope_deg=slope_deg.astype(np.float32),
-        aspect_deg=aspect_deg.astype(np.float32),
-        rms_roughness_m=rms_roughness_m.astype(np.float32),
-        illumination_fraction=illumination_fraction.astype(np.float32),
-        psr_mask=psr_mask.astype(np.uint8),
-        doubly_shadowed=doubly_shadowed.astype(np.uint8),
-        earth_los=earth_los.astype(np.float32),
-        p_ice=p_ice.astype(np.float32),
-        p_ice_unc=p_ice_unc.astype(np.float32),
-        mce_score=mce_score.astype(np.float32),
-        grid_x=grid_x.astype(np.float32),
-        grid_y=grid_y.astype(np.float32),
-        path_shortest=np.array(path_shortest, dtype=np.int32),
-        path_safest=np.array(path_safest, dtype=np.int32),
-        path_illuminated=np.array(path_illuminated, dtype=np.int32)
+        dem=dem[::step, ::step].astype(np.float32),
+        slope_deg=slope_deg[::step, ::step].astype(np.float32),
+        aspect_deg=aspect_deg[::step, ::step].astype(np.float32),
+        rms_roughness_m=rms_roughness_m[::step, ::step].astype(np.float32),
+        illumination_fraction=illumination_fraction[::step, ::step].astype(np.float32),
+        psr_mask=psr_mask[::step, ::step].astype(np.uint8),
+        doubly_shadowed=doubly_shadowed[::step, ::step].astype(np.uint8),
+        earth_los=earth_los[::step, ::step].astype(np.float32),
+        p_ice=p_ice[::step, ::step].astype(np.float32),
+        p_ice_unc=p_ice_unc[::step, ::step].astype(np.float32),
+        mce_score=mce_score[::step, ::step].astype(np.float32),
+        grid_x=grid_x[::step].astype(np.float32),
+        grid_y=grid_y[::step].astype(np.float32),
+        path_shortest=path_short_arr,
+        path_safest=path_safe_arr,
+        path_illuminated=path_illum_arr
     )
 
     full_results_size_mb = (results_dir / "mission_full_results.npz").stat().st_size / (1024 * 1024)

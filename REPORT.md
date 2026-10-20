@@ -2,7 +2,7 @@
 ## ISRO Problem Statement 8: Lunar Polar Subsurface Ice Characterization & Rover Traverse Planning
 
 **Repository:** `TomHacker69/LunaTrace`  
-**Generated:** 2026-10-20T13:12:10.307512+00:00  
+**Generated:** 2026-10-20T16:11:49.735357+00:00  
 **Target Depression:** Faustini SW Floor Basin (-87.39S, 82.31E) (`CAND_2_THIRD_PARTY`)  
 **Coordinates:** Latitude -87.39°S, Longitude 82.31°E  
 **Software Verification:** Automated end-to-end execution without synthetic data outside `tests/`.
@@ -19,11 +19,11 @@ LunaTrace executes a complete remote sensing and planetary mission planning pipe
 2. **Target Crater Selection:**  
    An a-priori ranking rule fixed BEFORE examining CPR/DoP selected **Faustini SW Floor Basin (-87.39S, 82.31E)** (Rank 1, Score 0.6936). It features an $86.6\%$ cryogenic cold-trap floor ($2.74\text{ km}^2$), low radar shadow ($32.5\%$), and safe interior swath margin ($+713.5\text{ m}$).
 3. **Safe Landing Corridors:**  
-   Identified **Site 1 (Rank 1)** on a slumped terrace at Slope 0.0°, Solar Illumination 100.0%, Earth LOS Visibility 100.0%, and Standoff Distance 4994.7 m to candidate ice deposits.
+   Identified **Site 1 (Rank 1)** on a slumped terrace at Slope 0.0°, Solar Illumination 100.0%, Earth LOS Visibility 100.0%, and Standoff Distance 6688.0 m to candidate ice deposits.
 4. **Rover Traverse Feasibility:**  
-   8-connected $A^*$ pathfinding established a safe, traversable route into the cold trap (9077.0 m distance, max slope 5.54° $\le 18.0°$). A VIPER-class $1.8\text{ kWh}$ battery maintains a **72.9\% minimum State-of-Charge** (52.9\% reserve margin above the critical $20\%$ cutoff).
+   8-connected $A^*$ pathfinding established a safe, traversable route into the cold trap (7766.7 m distance, max slope 5.01° $\le 18.0°$). A VIPER-class $1.8\text{ kWh}$ battery maintains a **71.7\% minimum State-of-Charge** (51.7\% reserve margin above the critical $20\%$ cutoff).
 5. **CRIM Dielectric Resource Modeling:**  
-   Dielectric mixture modeling over the $2.74\text{ km}^2$ cold trap yields **1.099 Megatons** of water ice in the nominal scenario ($3.5\text{ m}$ active depth, $15\%$ pore filling; $5\%-95\%$ uncertainty envelope: 0.608 to 1.701 Mt).
+   Dielectric mixture modeling over the $2.74\text{ km}^2$ cold trap yields **1.203 Megatons** of water ice in the nominal scenario ($3.5\text{ m}$ active depth, $15\%$ pore filling; $5\%-95\%$ uncertainty envelope: 0.665 to 1.861 Mt).
 
 ---
 
@@ -81,10 +81,10 @@ LunaTrace executes a complete remote sensing and planetary mission planning pipe
 | Metric / Layer | Value | Coverage [%] |
 | :--- | :--- | :--- |
 | Terrain Area Mapped | 324.00 km^2 | 100.0 |
-| Safe Landing Corridors (Slope <= 5.0 deg) | 135.40 km^2 | 41.79 |
-| Permanently Shadowed Regions (PSR, Illum < 0.5%) | 13.99 km^2 | 4.32 |
-| Doubly Shadowed Cold Traps (SVF < 0.86, Elev < -350m) | 2.74 km^2 | 0.84 |
-| Direct Earth Visibility (LOS >= 50%) | 164.47 km^2 | 50.76 |
+| Safe Landing Corridors (Slope <= 5.0 deg) | 145.31 km^2 | 44.85 |
+| Permanently Shadowed Regions (PSR, Illum < 0.5%) | 14.52 km^2 | 4.48 |
+| Doubly Shadowed Cold Traps (SVF < 0.86, Elev < -350m) | 3.00 km^2 | 0.92 |
+| Direct Earth Visibility (LOS >= 50%) | 164.45 km^2 | 50.76 |
 
 - **Horizon Ray-Tracing Parameters:** 72 azimuthal directions ($5°$ intervals), 5 solar elevation angles ($0.5° - 2.5°$), step distances out to $4,000\text{ m}$.
 - **Earth LOS Visibility:** Evaluated for mean apparent elevation $3.5°$ with northern horizon ray tracing out to $6,000\text{ m}$.
@@ -95,9 +95,9 @@ LunaTrace executes a complete remote sensing and planetary mission planning pipe
 
 | Rank | Site Name | Grid X (m) | Grid Y (m) | Elevation (m) | Slope (deg) | RMS Roughness (m) | Solar Illumination [%] | Earth LOS Visibility [%] | Distance to Ice (m) | OHRC Boulder Status | Composite MCE Score |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| 1 | Site 1 (Recommended) | 83010.0 | 7550.0 | -2648.0 | 0.0 | 0.69 | 100.0 | 100.0 | 4994.7 | UNASSESSED | 0.9919 |
-| 2 | Site 2 (Alternative) | 80730.0 | 9030.0 | -2727.5 | 0.0 | 1.32 | 93.9 | 100.0 | 6622.4 | UNASSESSED | 0.9694 |
-| 3 | Site 3 (Contingency) | 80410.0 | 7710.0 | -2740.5 | 0.0 | 1.6 | 87.5 | 98.8 | 7275.7 | UNASSESSED | 0.9483 |
+| 1 | Site 1 (Recommended) | 82810.0 | 7430.0 | -2649.5 | 0.0 | 1.62 | 100.0 | 100.0 | 6688.0 | UNASSESSED | 0.9903 |
+| 2 | Site 2 (Alternative) | 79690.0 | 10950.0 | -2724.5 | 0.0 | 3.37 | 89.2 | 100.0 | 7353.9 | UNASSESSED | 0.9528 |
+| 3 | Site 3 (Contingency) | 81770.0 | 10630.0 | -2735.5 | 0.25 | 2.45 | 88.1 | 82.3 | 5483.4 | UNASSESSED | 0.9112 |
 
 - **Hard Constraints:** Slope $\le 5.0°$, Solar Illumination $\ge 20\%$, Standoff to ice target $1.0 - 7.5\text{ km}$.
 - **MCE Weights (without OHRC):** Slope $0.35$, Roughness $0.25$, Illumination $0.25$, Earth LOS $0.15$.
@@ -108,13 +108,13 @@ LunaTrace executes a complete remote sensing and planetary mission planning pipe
 
 | Strategy | Algorithm | Distance (m) | Time (h) | Shadow Time (h) | Max Slope (deg) | Min SoC [%] | Reserve Margin [%] | Feasibility |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| Shortest Path (Distance-Optimal) | A* (8-connected) | 7386.6 | 25.65 | 0.69 | 10.3 | 64.2 | 44.2 | FEASIBLE |
-| Safest Path (Slope-Averse) | A* (8-connected) | 9077.0 | 31.52 | 1.28 | 5.54 | 72.9 | 52.9 | FEASIBLE |
-| Best-Illuminated Path (Solar-Tracking) | A* (8-connected) | 8542.1 | 29.66 | 0.42 | 8.43 | 81.7 | 61.7 | FEASIBLE |
+| Shortest Path (Distance-Optimal) | A* (8-connected) | 7016.9 | 24.36 | 0.79 | 9.46 | 61.3 | 41.3 | FEASIBLE |
+| Safest Path (Slope-Averse) | A* (8-connected) | 7766.7 | 26.97 | 0.79 | 5.01 | 71.7 | 51.7 | FEASIBLE |
+| Best-Illuminated Path (Solar-Tracking) | A* (8-connected) | 7992.9 | 27.75 | 0.39 | 5.56 | 86.7 | 66.7 | FEASIBLE |
 
 - **Chassis Rollover Limit:** $22.5°$, Engineering Safety Factor $1.25$ $\rightarrow$ Maximum Nav Slope **$18.0°$**.
 - **Battery Pack:** $1.8\text{ kWh}$ VIPER-class system ($65\text{ W}$ baseline, $4\text{ W/deg}$ traction, $110\text{ W}$ solar charging).
-- **Feasibility:** The Safest Route maintains a **72.9\% minimum SoC** (52.9\% margin above the critical $20\%$ reserve cutoff).
+- **Feasibility:** The Safest Route maintains a **71.7\% minimum SoC** (51.7\% margin above the critical $20\%$ reserve cutoff).
 
 ---
 
@@ -122,9 +122,9 @@ LunaTrace executes a complete remote sensing and planetary mission planning pipe
 
 | Scenario | Active Ice Column (m) | Regolith Volume (km^3) | Pore Filling Fraction [%] | Nominal Ice Mass (Megatons) | Uncertainty 5th Pct (Mt) | Uncertainty 95th Pct (Mt) | Description |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| Low (Conservative) | 1.2 | 0.0033 | 5.0 | 0.147 | 0.082 | 0.228 | Disseminated pore ice beneath 0.8m dry lag (2m penetration depth) |
-| Nominal (Realistic) | 3.0 | 0.0082 | 15.0 | 1.099 | 0.608 | 1.701 | Heterogeneous ice-regolith breccia beneath 0.5m lag (3.5m penetration depth) |
-| High (Optimistic) | 4.7 | 0.0129 | 30.0 | 3.439 | 1.91 | 5.253 | Segregated ice lenses extrapolated across 5m regolith column |
+| Low (Conservative) | 1.2 | 0.0036 | 5.0 | 0.161 | 0.089 | 0.249 | Disseminated pore ice beneath 0.8m dry lag (2m penetration depth) |
+| Nominal (Realistic) | 3.0 | 0.009 | 15.0 | 1.203 | 0.665 | 1.861 | Heterogeneous ice-regolith breccia beneath 0.5m lag (3.5m penetration depth) |
+| High (Optimistic) | 4.7 | 0.0141 | 30.0 | 3.762 | 2.09 | 5.748 | Segregated ice lenses extrapolated across 5m regolith column |
 
 - **Model Formulation:** Complex Refractive Index Model (CRIM) across regolith matrix ($\epsilon_m' = 2.80$), pure water ice ($\epsilon_i' = 3.15$), and vacuum pores ($\phi = 0.45$).
 - **Inversion Area:** Confined strictly to the $2.74\text{ km}^2$ cold-trap depression.

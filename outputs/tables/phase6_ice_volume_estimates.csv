@@ -1,4 +1,4 @@
 Scenario,Active Ice Column (m),Regolith Volume (km^3),Pore Filling Fraction [%],Nominal Ice Mass (Megatons),Uncertainty 5th Pct (Mt),Uncertainty 95th Pct (Mt),Description
-Low (Conservative),1.2,0.0033,5.0,0.147,0.082,0.228,Disseminated pore ice beneath 0.8m dry lag (2m penetration depth)
-Nominal (Realistic),3.0,0.0082,15.0,1.099,0.608,1.701,Heterogeneous ice-regolith breccia beneath 0.5m lag (3.5m penetration depth)
-High (Optimistic),4.7,0.0129,30.0,3.439,1.91,5.253,Segregated ice lenses extrapolated across 5m regolith column
+Low (Conservative),1.2,0.0036,5.0,0.161,0.089,0.249,Disseminated pore ice beneath 0.8m dry lag (2m penetration depth)
+Nominal (Realistic),3.0,0.009,15.0,1.203,0.665,1.861,Heterogeneous ice-regolith breccia beneath 0.5m lag (3.5m penetration depth)
+High (Optimistic),4.7,0.0141,30.0,3.762,2.09,5.748,Segregated ice lenses extrapolated across 5m regolith column

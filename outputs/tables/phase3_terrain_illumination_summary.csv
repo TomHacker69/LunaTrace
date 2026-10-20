@@ -1,6 +1,6 @@
 Metric / Layer,Value,Coverage [%]
 Terrain Area Mapped,324.00 km^2,100.0
-Safe Landing Corridors (Slope <= 5.0 deg),135.40 km^2,41.79
-"Permanently Shadowed Regions (PSR, Illum < 0.5%)",13.99 km^2,4.32
-"Doubly Shadowed Cold Traps (SVF < 0.86, Elev < -350m)",2.74 km^2,0.84
-Direct Earth Visibility (LOS >= 50%),164.47 km^2,50.76
+Safe Landing Corridors (Slope <= 5.0 deg),145.31 km^2,44.85
+"Permanently Shadowed Regions (PSR, Illum < 0.5%)",14.52 km^2,4.48
+"Doubly Shadowed Cold Traps (SVF < 0.86, Elev < -350m)",3.00 km^2,0.92
+Direct Earth Visibility (LOS >= 50%),164.45 km^2,50.76
