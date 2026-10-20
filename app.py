@@ -34,7 +34,6 @@ from plotly.subplots import make_subplots
 # Page Config
 st.set_page_config(
     page_title="LunaTrace | Lunar South Pole Mission Dashboard",
-    page_icon="🌕",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -147,7 +146,7 @@ res = load_results()
 arr = res["arrays"]
 
 # Sidebar Navigation
-st.sidebar.title("🌕 LunaTrace")
+st.sidebar.title("LunaTrace")
 st.sidebar.markdown("**ISRO Problem Statement 8**")
 st.sidebar.markdown(f"*Real Mission Precomputed Bundle: {res['results_size_mb']} MB*")
 st.sidebar.divider()
@@ -181,7 +180,7 @@ st.sidebar.markdown("""
 # PAGE 1: DATA & PROVENANCE
 # =============================================================================
 if page == "1. Data & Provenance":
-    st.title("🛰️ Primary Mission Sensor Registry & Cryptographic Provenance")
+    st.title("Primary Mission Sensor Registry & Cryptographic Provenance")
     st.markdown("Cryptographic SHA-256 verification of authorized sensor inputs in `data/raw/`.")
 
     col1, col2, col3, col4 = st.columns(4)
@@ -217,7 +216,7 @@ DERIVED_MAX    = 14054""", language="text")
 # PAGE 2: RADAR POLARIMETRY
 # =============================================================================
 elif page == "2. Radar Polarimetry":
-    st.title("📡 Chandrayaan-2 DFSAR Radar Polarimetry (Slant-Range & Windowed)")
+    st.title("Chandrayaan-2 DFSAR Radar Polarimetry (Slant-Range & Windowed)")
     st.markdown("Calibrated circular-transmit, linear-receive Stokes decomposition and invariant bounds.")
 
     col1, col2, col3, col4 = st.columns(4)
@@ -239,7 +238,7 @@ elif page == "2. Radar Polarimetry":
 # PAGE 3: ICE ANALYSIS & NULL COMPARISON
 # =============================================================================
 elif page == "3. Ice Analysis & Null Comparison":
-    st.title("🧊 Polarimetric Subsurface Ice Analysis & Spatially Varying Null")
+    st.title("Polarimetric Subsurface Ice Analysis & Spatially Varying Null")
     st.markdown("Rigorous hypothesis testing against spatially varying Wishart speckle fields.")
 
     p2 = res["p2_summary"]
@@ -271,7 +270,7 @@ elif page == "3. Ice Analysis & Null Comparison":
 # PAGE 4: TERRAIN & HORIZON ILLUMINATION
 # =============================================================================
 elif page == "4. Terrain & Horizon Illumination":
-    st.title("🏔️ Topographic Morphometry & 72-Azimuth Horizon Modeling")
+    st.title("Topographic Morphometry & 72-Azimuth Horizon Modeling")
     st.markdown("Derived strictly from the registered LRO LOLA Polar Topography (ldem_85s_20m).")
 
     st.dataframe(res["p3_summary"], use_container_width=True)
@@ -301,7 +300,7 @@ elif page == "4. Terrain & Horizon Illumination":
 # PAGE 5: LANDING SITE SELECTION
 # =============================================================================
 elif page == "5. Landing Site Selection":
-    st.title("🚀 Landing Site Multi-Criteria Evaluation (MCE)")
+    st.title("Landing Site Multi-Criteria Evaluation (MCE)")
     st.markdown("Hard engineering constraints (Slope <= 5°, Illum >= 20%, Standoff 1.0-7.5 km) and ranking.")
 
     st.dataframe(res["p4_sites"], use_container_width=True)
@@ -315,7 +314,7 @@ elif page == "5. Landing Site Selection":
 # PAGE 6: ROVER TRAVERSE & POWER
 # =============================================================================
 elif page == "6. Rover Traverse & Power":
-    st.title("🚜 Rover Traverse Planning & Dynamic Energy Simulation")
+    st.title("Rover Traverse Planning & Dynamic Energy Simulation")
     st.markdown("8-Connected A* pathfinding benchmarked against Dijkstra; mechanical nav slope limit = 18.0°.")
 
     st.dataframe(res["p5_routes"], use_container_width=True)
@@ -334,7 +333,7 @@ elif page == "6. Rover Traverse & Power":
 # PAGE 7: VOLUMETRIC ICE ESTIMATION
 # =============================================================================
 elif page == "7. Volumetric Ice Estimation":
-    st.title("💧 CRIM Dielectric Volumetric Water Ice Estimation")
+    st.title("CRIM Dielectric Volumetric Water Ice Estimation")
     st.markdown("Three-phase dielectric mixing model across 0 to 5 m column with Monte Carlo sensitivity.")
 
     st.dataframe(res["p6_volume"], use_container_width=True)
@@ -352,7 +351,7 @@ elif page == "7. Volumetric Ice Estimation":
 # PAGE 8: MISSION LIMITATIONS
 # =============================================================================
 elif page == "8. Mission Limitations":
-    st.title("⚠️ Mission Assumptions, Limits & Unassessed Parameters")
+    st.title("Mission Assumptions, Limits & Unassessed Parameters")
     st.markdown("Strict scientific audit compliance disclosure.")
 
     st.markdown(r"""
