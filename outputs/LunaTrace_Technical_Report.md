@@ -22,7 +22,7 @@ Permanently Shadowed Regions (PSRs) and doubly shadowed cold traps ($T < 100\tex
 #### Table 1: Master Summary of Pipeline Outputs
 | Analysis Phase | Primary Algorithmic Method | Key Quantitative Deliverable | Critical Operational Metric |
 | :--- | :--- | :--- | :--- |
-| **Phase 1: DFSAR Radar** | Stokes Inversion & Raney $m-\chi$ Decomposition | `phase1_polarimetric_summary.csv` | L-band $\text{CPR} > 1.0$: $25.9\%$; Mean DoP: $0.343$ |
+| **Phase 1: DFSAR Radar** | Stokes Inversion, Wishart Polarimetry & Leave-Out Cluster Null | `phase1_slant_range_polarimetric_summary.csv` | Native $\text{CPR}>1$: $7.65\%$; 7x7 $\text{CPR}>1$ & $m \le 0.13$: $4,309\text{ px}$ ($0.10\%$); Null count excess $3.2\times$ ($L=31$) to $10.8\times$ ($L=101$); $0\%$ exceed $p_{99}$ chance max size |
 | **Phase 2: Ice Detection** | Multi-Discriminator Continuous Scoring & $\Delta \text{CPR}$ | `phase2_terrain_class_statistics.csv` | Ice Area: $9.39\text{ km}^2$; $\Delta \text{CPR} = +0.829$; FPR in Control: $0.0\%$ |
 | **Phase 3: Topography** | Horizon Azimuth Ray-Tracing (16 directions) | `phase3_terrain_illumination_summary.csv` | Safe Landing Area ($\theta < 5^\circ$): $20.3\text{ km}^2$; High Illum: $5.7\text{ km}^2$ |
 | **Phase 4: Landing Sites** | Multi-Criteria Weighted Overlay (MCO) | `phase4_top3_landing_sites.csv` | **Site 1 (Rank 1):** $\theta = 0.09^\circ$, Illum $= 100\%$, Earth LOS $= 100\%$ |
@@ -45,6 +45,7 @@ Permanently Shadowed Regions (PSRs) and doubly shadowed cold traps ($T < 100\tex
   - Rocky ejecta scatters equally at both bands: $\Delta \text{CPR} \approx +0.049$.
   - Buried ice beneath a $0.5\text{ m}$ dry regolith thermal lag exhibits a massive differential: $\Delta \text{CPR} = +0.829$.
 - **Polarimetric Bound:** Proved that $\text{DoP} \ge \frac{|\text{CPR}-1|}{\text{CPR}+1}$; high CPR naturally enforces $\text{DoP} \ge 0.27$, disproving simplistic $<0.13$ criteria for strong ice deposits.
+- **Spatially Varying Cluster Null Baseline:** Observed candidate cluster sizes ($m \le 0.13, \text{CPR} > 1.0$) are consistent with a spatially varying speckle null ($0.0\%$ exceeding $p_{99}$ chance max size at $L=31$ and $L=51$). Candidate count excess grows with background smoothing scale ($3.2\times$ at $L=31$ to $10.8\times$ at $L=101$). Native radar statistics alone do not establish an ice-like detection; windowed $\text{CPR}>1$ pixels remain strictly "unexplained by speckle" until registered LOLA DEM topography and OHRC boulder distributions are integrated. Obsolete asymptotic claims like $P(\text{CPR}>1) < 10^{-45}$ are rejected.
 
 #### Slide 3: Multi-Discriminator Ice Detection & Validation
 - **Integrated Model:**

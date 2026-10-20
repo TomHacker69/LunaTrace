@@ -29,27 +29,70 @@ def estimate_spatially_varying_covariance(
     cross_real: np.ndarray,
     cross_imag: np.ndarray,
     valid_mask: np.ndarray,
-    smoothing_window: int = 51
+    smoothing_window: int = 51,
+    leave_out_window: Optional[int] = None
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Estimates the spatially varying local mean 2x2 complex covariance matrix
     over a large boxcar smoothing window (e.g. 31x31, 51x51, 101x101).
+
+    If leave_out_window is provided (e.g. 7 or 9), excludes the central
+    candidate boxcar window from the local background estimation:
+      Sum_annulus = Sum_L - Sum_W
+      Count_annulus = Count_L - Count_W
+      Mean_annulus = Sum_annulus / max(Count_annulus, eps)
+    This prevents bright or depolarizing candidate clusters from self-contaminating
+    their own background covariance baseline.
     """
-    v_float = valid_mask.astype(np.float32)
-    count = uniform_filter(v_float, size=smoothing_window)
-    denom = np.maximum(count, 1e-6)
+    v_float = valid_mask.astype(np.float64)
+    L = smoothing_window
 
-    c11_sum = uniform_filter(np.where(valid_mask, p_lh, 0.0).astype(np.float32), size=smoothing_window)
-    c22_sum = uniform_filter(np.where(valid_mask, p_lv, 0.0).astype(np.float32), size=smoothing_window)
-    cr_sum = uniform_filter(np.where(valid_mask, cross_real, 0.0).astype(np.float32), size=smoothing_window)
-    ci_sum = uniform_filter(np.where(valid_mask, cross_imag, 0.0).astype(np.float32), size=smoothing_window)
+    if leave_out_window is not None and leave_out_window > 0 and leave_out_window < L:
+        W = leave_out_window
+        # Sums over outer window L
+        count_L = uniform_filter(v_float, size=L) * float(L * L)
+        c11_L = uniform_filter(np.where(valid_mask, p_lh, 0.0).astype(np.float64), size=L) * float(L * L)
+        c22_L = uniform_filter(np.where(valid_mask, p_lv, 0.0).astype(np.float64), size=L) * float(L * L)
+        cr_L = uniform_filter(np.where(valid_mask, cross_real, 0.0).astype(np.float64), size=L) * float(L * L)
+        ci_L = uniform_filter(np.where(valid_mask, cross_imag, 0.0).astype(np.float64), size=L) * float(L * L)
 
-    c11_mean = c11_sum / denom
-    c22_mean = c22_sum / denom
-    cr_mean = cr_sum / denom
-    ci_mean = ci_sum / denom
+        # Sums over central excluded window W
+        count_W = uniform_filter(v_float, size=W) * float(W * W)
+        c11_W = uniform_filter(np.where(valid_mask, p_lh, 0.0).astype(np.float64), size=W) * float(W * W)
+        c22_W = uniform_filter(np.where(valid_mask, p_lv, 0.0).astype(np.float64), size=W) * float(W * W)
+        cr_W = uniform_filter(np.where(valid_mask, cross_real, 0.0).astype(np.float64), size=W) * float(W * W)
+        ci_W = uniform_filter(np.where(valid_mask, cross_imag, 0.0).astype(np.float64), size=W) * float(W * W)
 
-    return c11_mean, c22_mean, cr_mean, ci_mean
+        # Annular difference (leave-out)
+        count_ann = np.maximum(0.0, count_L - count_W)
+        c11_ann = np.maximum(0.0, c11_L - c11_W)
+        c22_ann = np.maximum(0.0, c22_L - c22_W)
+        cr_ann = cr_L - cr_W
+        ci_ann = ci_L - ci_W
+
+        # Fallback to inclusive where annulus has insufficient valid samples
+        use_annulus = count_ann >= 1.0
+        denom = np.where(use_annulus, count_ann, np.maximum(count_L, 1e-6))
+
+        c11_mean = np.where(use_annulus, c11_ann, c11_L) / denom
+        c22_mean = np.where(use_annulus, c22_ann, c22_L) / denom
+        cr_mean = np.where(use_annulus, cr_ann, cr_L) / denom
+        ci_mean = np.where(use_annulus, ci_ann, ci_L) / denom
+    else:
+        count = uniform_filter(v_float, size=L)
+        denom = np.maximum(count, 1e-6)
+
+        c11_sum = uniform_filter(np.where(valid_mask, p_lh, 0.0).astype(np.float64), size=L)
+        c22_sum = uniform_filter(np.where(valid_mask, p_lv, 0.0).astype(np.float64), size=L)
+        cr_sum = uniform_filter(np.where(valid_mask, cross_real, 0.0).astype(np.float64), size=L)
+        ci_sum = uniform_filter(np.where(valid_mask, cross_imag, 0.0).astype(np.float64), size=L)
+
+        c11_mean = c11_sum / denom
+        c22_mean = c22_sum / denom
+        cr_mean = cr_sum / denom
+        ci_mean = ci_sum / denom
+
+    return c11_mean.astype(np.float32), c22_mean.astype(np.float32), cr_mean.astype(np.float32), ci_mean.astype(np.float32)
 
 
 def simulate_wishart_field_around_covariance(
@@ -143,11 +186,18 @@ def run_spatially_varying_simulation_suite(
     valid_mask: np.ndarray,
     config: LunaTraceConfig,
     smoothing_windows: Optional[List[int]] = None,
-    mc_runs: Optional[int] = None
+    mc_runs: Optional[int] = None,
+    n_cell: Optional[float] = None,
+    use_leave_out: bool = True
 ) -> Dict[str, Any]:
     """
     Executes the spatially varying null baseline over configured smoothing window sizes
     and Monte Carlo runs. Compares chance cluster distribution with observed clusters.
+
+    Parameters:
+    - n_cell: runtime measured autocorrelation ENL. If None, falls back to config.
+    - use_leave_out: if True, excludes the central evaluation window from local background
+                     covariance estimation.
     """
     if smoothing_windows is None:
         smoothing_windows = config.cluster_baseline.smoothing_windows
@@ -155,17 +205,26 @@ def run_spatially_varying_simulation_suite(
         mc_runs = config.cluster_baseline.monte_carlo_runs
 
     base_seed = config.cluster_baseline.random_seed
-    n_cell = config.cluster_baseline.n_cell
+    if n_cell is None:
+        n_cell = getattr(config.cluster_baseline, "n_cell", None) or 4.21
     cpr_thresh = config.cluster_baseline.cpr_threshold
     dop_thresh = config.cluster_baseline.dop_threshold
 
     results: Dict[str, Any] = {}
 
     for L in smoothing_windows:
-        print(f"\n[*] Evaluating Spatially Varying Null (Smoothing Window L = {L}x{L}, {mc_runs} MC Runs)...")
-        c11_m, c22_m, cr_m, ci_m = estimate_spatially_varying_covariance(
-            p_lh, p_lv, cross_real, cross_imag, valid_mask, smoothing_window=L
-        )
+        mode_str = "Leave-Out Annular" if use_leave_out else "Inclusive"
+        print(f"\n[*] Evaluating Spatially Varying Null ({mode_str}, Smoothing L={L}x{L}, N_cell={n_cell:.2f}, {mc_runs} MC Runs)...", flush=True)
+
+        # Pre-estimate covariance for each evaluation window
+        cov_by_w: Dict[int, Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = {}
+        for w in [7, 9]:
+            leave_out_w = w if use_leave_out else None
+            cov_by_w[w] = estimate_spatially_varying_covariance(
+                p_lh, p_lv, cross_real, cross_imag, valid_mask,
+                smoothing_window=L,
+                leave_out_window=leave_out_w
+            )
 
         counts_7: List[int] = []
         max_sz_7: List[int] = []
@@ -176,13 +235,16 @@ def run_spatially_varying_simulation_suite(
         all_sz_9: List[int] = []
 
         for run_idx in range(mc_runs):
-            rng = np.random.default_rng(base_seed + run_idx * 1000 + L * 10)
-            w11, w22, w12_r, w12_i = simulate_wishart_field_around_covariance(
-                c11_m, c22_m, cr_m, ci_m, valid_mask, n_cell=n_cell, rng=rng
-            )
+            if (run_idx + 1) % 25 == 0 or run_idx == 0:
+                print(f"    L={L}x{L}: Completed {run_idx + 1}/{mc_runs} Monte Carlo iterations...", flush=True)
 
             # Evaluate 7x7
-            cpr_7, dop_7 = compute_windowed_cpr_dop(w11, w22, w12_r, w12_i, valid_mask, window_size=7)
+            rng_7 = np.random.default_rng(base_seed + run_idx * 1000 + L * 10 + 7)
+            c11_7, c22_7, cr_7, ci_7 = cov_by_w[7]
+            w11_7, w22_7, w12r_7, w12i_7 = simulate_wishart_field_around_covariance(
+                c11_7, c22_7, cr_7, ci_7, valid_mask, n_cell=n_cell, rng=rng_7
+            )
+            cpr_7, dop_7 = compute_windowed_cpr_dop(w11_7, w22_7, w12r_7, w12i_7, valid_mask, window_size=7)
             cand_7 = valid_mask & (cpr_7 > cpr_thresh) & (dop_7 <= dop_thresh)
             lbl_7, n7 = ndi.label(cand_7, structure=np.ones((3, 3), dtype=int))
             if n7 > 0:
@@ -195,7 +257,12 @@ def run_spatially_varying_simulation_suite(
                 max_sz_7.append(0)
 
             # Evaluate 9x9
-            cpr_9, dop_9 = compute_windowed_cpr_dop(w11, w22, w12_r, w12_i, valid_mask, window_size=9)
+            rng_9 = np.random.default_rng(base_seed + run_idx * 1000 + L * 10 + 9)
+            c11_9, c22_9, cr_9, ci_9 = cov_by_w[9]
+            w11_9, w22_9, w12r_9, w12i_9 = simulate_wishart_field_around_covariance(
+                c11_9, c22_9, cr_9, ci_9, valid_mask, n_cell=n_cell, rng=rng_9
+            )
+            cpr_9, dop_9 = compute_windowed_cpr_dop(w11_9, w22_9, w12r_9, w12i_9, valid_mask, window_size=9)
             cand_9 = valid_mask & (cpr_9 > cpr_thresh) & (dop_9 <= dop_thresh)
             lbl_9, n9 = ndi.label(cand_9, structure=np.ones((3, 3), dtype=int))
             if n9 > 0:
@@ -214,6 +281,8 @@ def run_spatially_varying_simulation_suite(
                 "smoothing_window": L,
                 "boxcar_window": w_size,
                 "mc_runs": mc_runs,
+                "n_cell": n_cell,
+                "use_leave_out": use_leave_out,
                 "mean_cluster_count": float(np.mean(c_list)),
                 "std_cluster_count": float(np.std(c_list)),
                 "p99_max_cluster_size": p99_max_sz,

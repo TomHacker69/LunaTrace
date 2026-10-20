@@ -222,7 +222,7 @@ class ClusterBaselineConfig(BaseModel):
     random_seed: int = Field(default=42)
     monte_carlo_runs: int = Field(gt=0, default=100)
     smoothing_windows: List[int] = Field(default=[31, 51, 101])
-    n_cell: float = Field(gt=0, default=4.21)
+    n_cell: Optional[float] = Field(default=None)
     cpr_threshold: float = Field(gt=0, default=1.0)
     dop_threshold: float = Field(gt=0, default=0.13)
 

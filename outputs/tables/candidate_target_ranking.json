@@ -1,0 +1,113 @@
+{
+  "timestamp_utc": "2026-10-20T12:55:53.892566+00:00",
+  "ranking_rule": {
+    "rule_name": "A-Priori Polar Cold-Trap Exploration Ranking Rule",
+    "rule_version": "1.0",
+    "objective": "Rank candidate polar depressions for volatile exploration prior to inspecting radar polarimetric data, maximizing cold-trap area and radar visibility while ensuring safe containment inside the DFSAR swath footprint.",
+    "gating_criteria": {
+      "swath_containment": "swath_margin_m > 0 and margin_to_uncertainty_ratio >= 0.20",
+      "cold_trap_presence": "cold_trap_fraction > 0.005 (at least 0.5% area in deep cold trap)",
+      "radar_observability": "radar_shadow_fraction < 0.85 (sufficient illuminated backscatter)"
+    },
+    "scoring_formula": "Score = 0.35 * cold_trap_fraction + 0.25 * (1.0 - radar_shadow_fraction) + 0.20 * min(1.0, margin_to_uncertainty_ratio / 2.0) + 0.20 * min(1.0, floor_width_km / 10.0)",
+    "weights": {
+      "cold_trap_fraction": 0.35,
+      "radar_illumination": 0.25,
+      "swath_margin_safety": 0.2,
+      "floor_width_traversability": 0.2
+    }
+  },
+  "chosen_target_id": "CAND_2_THIRD_PARTY",
+  "chosen_target_name": "Faustini SW Floor Basin (-87.39S, 82.31E)",
+  "chosen_target_coordinates": {
+    "lat": -87.39,
+    "lon": 82.31
+  },
+  "chosen_target_justification": "Candidate 'Faustini SW Floor Basin (-87.39S, 82.31E)' (CAND_2_THIRD_PARTY) ranks #1 with composite score 0.6936. It is safely interior to the swath footprint with margin 713.5 m (0.22x total geolocation uncertainty 3267.3 m), contains a massive cold-trap area (86.6%), a wide flat floor (12.00 km width), and acceptable radar shadow fraction (32.5%). Evaluation fixed BEFORE inspecting CPR/DOP.",
+  "candidates": [
+    {
+      "id": "CAND_2_THIRD_PARTY",
+      "name": "Faustini SW Floor Basin (-87.39S, 82.31E)",
+      "label": "third-party, unverified",
+      "center_lat": -87.39,
+      "center_lon": 82.31,
+      "swath_margin_m": 713.5,
+      "geo_uncertainty_m": 3267.3,
+      "margin_to_uncertainty_ratio": 0.22,
+      "floor_width_km": 12.0,
+      "min_elevation_m": -2894.0,
+      "max_elevation_m": -2415.0,
+      "relief_m": 479.0,
+      "psr_fraction": 0.8655,
+      "cold_trap_fraction": 0.8655,
+      "radar_shadow_fraction": 0.3248,
+      "radar_layover_fraction": 0.0011,
+      "incidence_range_deg": "26.2 - 29.2 (mean 27.4)",
+      "gated_eligible": true,
+      "ranking_score": 0.6936
+    },
+    {
+      "id": "CAND_1_FAUSTINI_MAIN",
+      "name": "Faustini Crater Floor (Primary Basin)",
+      "label": "Deepest primary floor depression in Phase 1 crop",
+      "center_lat": -87.254,
+      "center_lon": 84.151,
+      "swath_margin_m": 713.0,
+      "geo_uncertainty_m": 4588.1,
+      "margin_to_uncertainty_ratio": 0.16,
+      "floor_width_km": 24.0,
+      "min_elevation_m": -3366.0,
+      "max_elevation_m": -1724.0,
+      "relief_m": 1642.0,
+      "psr_fraction": 0.9201,
+      "cold_trap_fraction": 0.9201,
+      "radar_shadow_fraction": 0.4416,
+      "radar_layover_fraction": 0.0017,
+      "incidence_range_deg": "26.2 - 31.2 (mean 28.0)",
+      "gated_eligible": false,
+      "ranking_score": 0.0
+    },
+    {
+      "id": "CAND_3_AMUNDSEN_SOUTH",
+      "name": "Amundsen South Margin Depression",
+      "label": "Northern swath margin depression",
+      "center_lat": -85.405,
+      "center_lon": 84.098,
+      "swath_margin_m": -10971.7,
+      "geo_uncertainty_m": 6385.2,
+      "margin_to_uncertainty_ratio": -1.72,
+      "floor_width_km": 29.46,
+      "min_elevation_m": -3963.5,
+      "max_elevation_m": -1246.0,
+      "relief_m": 2717.5,
+      "psr_fraction": 0.9018,
+      "cold_trap_fraction": 0.9018,
+      "radar_shadow_fraction": 0.3667,
+      "radar_layover_fraction": 0.0008,
+      "incidence_range_deg": "24.6 - 30.7 (mean 27.5)",
+      "gated_eligible": false,
+      "ranking_score": 0.0
+    },
+    {
+      "id": "CAND_4_SOUTH_SUBBASIN",
+      "name": "Shoemaker-Faustini Saddle Sub-Basin",
+      "label": "Southern deep polar sub-basin",
+      "center_lat": -88.329,
+      "center_lon": 81.004,
+      "swath_margin_m": -9729.1,
+      "geo_uncertainty_m": 4165.0,
+      "margin_to_uncertainty_ratio": -2.34,
+      "floor_width_km": 3.24,
+      "min_elevation_m": -1796.0,
+      "max_elevation_m": -448.5,
+      "relief_m": 1347.5,
+      "psr_fraction": 0.9999,
+      "cold_trap_fraction": 0.9999,
+      "radar_shadow_fraction": 0.4446,
+      "radar_layover_fraction": 0.013,
+      "incidence_range_deg": "25.0 - 27.0 (mean 26.0)",
+      "gated_eligible": false,
+      "ranking_score": 0.0
+    }
+  ]
+}

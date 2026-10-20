@@ -29,6 +29,7 @@ from src.config_schema import load_config
 from src.pds4_reader import (
     parse_pds4_xml_label,
     read_complex_slc_pair,
+    measure_runtime_autocorrelation_enl,
     apply_radiometric_calibration,
     multilook_and_compute_stokes,
     derive_crop_from_bounding_box,
@@ -158,8 +159,10 @@ def run_phase1_slant_range():
     cell_area_slant = az_cell * slant_cell              # 14.0709 m^2
     cell_area_ground = az_cell * ground_cell            # 32.1046 m^2
 
-    # Single measured ENL: N_cell = 4.21 looks/cell (from complex autocorrelation, confirmed by CPR spread)
-    n_cell = 4.21
+    # Single measured ENL: measured at runtime from complex autocorrelation
+    n_cell = measure_runtime_autocorrelation_enl(
+        c_lh, azimuth_looks=az_looks, range_looks=rg_looks, valid_raw_mask=valid_raw
+    )
 
     # Target looks for 90% acceptance at m <= 0.13 under 2x2 complex Wishart
     target_looks = brentq(lambda n: betainc(1.5, n - 1.0, 0.13**2) - 0.90, 10, 500)

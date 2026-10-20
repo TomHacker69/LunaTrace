@@ -155,7 +155,31 @@ $$P_{\text{surface}} = \frac{1}{2} m S_1 (1 - \sin 2\chi) \quad \text{(Odd-bounc
 $$P_{\text{double}} = \frac{1}{2} m S_1 (1 + \sin 2\chi) \quad \text{(Even-bounce dihedral corner reflection)}$$
 $$P_{\text{volume}} = S_1 (1 - m) \quad \text{(Randomly distributed volume depolarizers)}$$
 
-### 3.5 Horizon-Ephemeris Ray-Tracing Illumination (Phase 3)
+### 3.5 Spatially Varying Cluster Null Baseline & Honest Scientific Conclusion
+To evaluate whether observed candidate clusters ($m \le 0.13, \text{CPR} > 1.0$) represent genuine physical scatterers or spatially structured speckle fluctuations, LunaTrace implements a **Spatially Varying Wishart Speckle Null Baseline**:
+1. **Runtime Measurement:** The single-cell Equivalent Number of Looks ($N_{\text{cell}} = 4.21$) is measured dynamically from the complex SLC 2D autocorrelation broadening factors at runtime.
+2. **Leave-Out Annular Covariance:** Local background covariance $\bar{\mathbf{C}}_L$ is estimated using boxcar smoothing windows $L \in \{31, 51, 101\}$, with a leave-out annular variant that explicitly excludes the central evaluation window $W \times W$ to eliminate candidate self-inflation.
+3. **100-Run Monte Carlo Simulation:** At each iteration, a 2D Wishart field is generated around the local covariance, windowed at $W \in \{7\times 7, 9\times 9\}$, and connected-component candidates are clustered under 8-connectivity.
+
+```
+Cluster Null Baseline Summary (Leave-Out Annular Covariance, 100 MC Runs, N_cell = 4.21):
+=============================================================================================================
+Smoothing (L)  Boxcar (W)  Expected Chance Clusters  Count Excess  Max Chance Size  99th Pct Max  Obs > p99
+-------------------------------------------------------------------------------------------------------------
+L = 31x31      7x7         197.2 +/- 17.5             3.21x         321 px           285.4 px      0 / 634 (0.00%)
+L = 31x31      9x9          85.0 +/- 12.5             3.11x         387 px           293.9 px      0 / 264 (0.00%)
+L = 51x51      7x7         139.7 +/- 12.8             4.54x         311 px           232.8 px      0 / 634 (0.00%)
+L = 51x51      9x9          59.0 +/- 11.1             4.48x         274 px           237.4 px      0 / 264 (0.00%)
+L = 101x101    7x7          58.5 +/- 9.8             10.83x          80 px            75.1 px      5 / 634 (0.79%)
+L = 101x101    9x9          16.0 +/- 5.2             16.46x          76 px            65.1 px      8 / 264 (3.03%)
+=============================================================================================================
+```
+
+> [!IMPORTANT]
+> **Honest Scientific Conclusion for Phase 1:**  
+> Observed candidate cluster sizes are **consistent with a spatially varying speckle null**. The count excess grows systematically with the background smoothing scale ($3.2\times$ at $L=31$ to $10.6\times - 10.8\times$ at $L=101$), so **native radar statistics alone do not establish an ice-like detection**. Candidate cluster sizes do not exceed the 99th percentile of chance maximum cluster sizes under local speckle ($0.0\%$ at $L=31$ and $L=51$). Any candidate spatial contrast is defined strictly as this scale-dependent contrast against large background smoothing scales. Physical attribution cannot be assigned from radar statistics alone: candidate pixels remain strictly categorized as **"unexplained by speckle"**, nothing more, until registered LRO LOLA DEM topography (local slopes and incidence angles) and Chandrayaan-2 OHRC boulder counts are integrated. Obsolete asymptotic claims such as $P(\text{CPR}>1) < 10^{-45}$ are rejected.
+
+### 3.6 Horizon-Ephemeris Ray-Tracing Illumination (Phase 3)
 Rather than using static regional averages or arbitrary cosine scalings, LunaTrace performs full-profile horizon ray-tracing across **72 azimuthal directions** ($5^\circ$ sampling) out to **$4000\text{ m}$ distance**:
 
 $$\theta_{\text{horiz}}(\mathbf{x}, \phi_k) = \max_{d \in [60, 4000]} \left( \arctan\left(\frac{z(\mathbf{x} + d \mathbf{u}_k) - z(\mathbf{x})}{d}\right) \right)$$

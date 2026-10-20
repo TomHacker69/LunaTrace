@@ -10,10 +10,13 @@ data/raw/*
 !data/raw/.gitkeep
 data/processed/*
 !data/processed/.gitkeep
+*.img
+*.lbl
 
 # Large GeoTIFF outputs (>15MB each, registered in provenance metadata)
 outputs/maps/*.tif
 outputs/maps/*.tif.ovr
+*.tif
 
 # Large raster PNGs (>1MB)
 outputs/maps/phase1_slant_range_mchi_rgb.png
