@@ -1,4 +1,4 @@
-Scenario,Assumed_Base_Ice_Fraction_pct,Effective_Column_Depth_m,Dry_Lag_Thickness_m,Active_Ice_Bearing_Depth_m,Mean_Detected_Ice_Fraction_pct,Pure_Ice_Volume_m3,Pure_Ice_Volume_km3,Water_Ice_Mass_Metric_Tons,Water_Ice_Mass_Megatons,Bulk_Ore_Volume_m3,Geological_Assumptions
-Low (Conservative),5.0,2.0,0.8,1.2,2.66,304728,0.0003,280350,0.28,11454240,Sparse disseminated pore ice; thick 0.8m dry lag; shallow penetration depth (2.0m)
-Nominal (Realistic),15.0,3.5,0.5,3.0,7.98,2285463,0.0023,2102626,2.1,28635600,Heterogeneous ice-regolith breccia; 0.5m dry lag; L-band penetration depth (3.5m)
-High (Optimistic),30.0,5.0,0.3,4.7,15.96,7161117,0.0072,6588228,6.59,44862440,Segregated ice lenses / paleo-cometary deposits; full 0-5m column extrapolated
+Scenario,Active Ice Column (m),Regolith Volume (km^3),Pore Filling Fraction [%],Nominal Ice Mass (Megatons),Uncertainty 5th Pct (Mt),Uncertainty 95th Pct (Mt),Description
+Low (Conservative),1.2,0.0033,5.0,0.147,0.082,0.228,Disseminated pore ice beneath 0.8m dry lag (2m penetration depth)
+Nominal (Realistic),3.0,0.0082,15.0,1.099,0.608,1.701,Heterogeneous ice-regolith breccia beneath 0.5m lag (3.5m penetration depth)
+High (Optimistic),4.7,0.0129,30.0,3.439,1.91,5.253,Segregated ice lenses extrapolated across 5m regolith column

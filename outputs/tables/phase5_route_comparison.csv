@@ -1,4 +1,4 @@
-Route_Name,Description,Distance_m,Total_Time_h,Shadow_Time_h,Max_Slope_deg,Mean_Slope_deg,Min_Battery_SoC_pct,Energy_Consumed_Wh,Traverse_Feasible
-Shortest Route,Direct distance path; accepts steeper slopes,4309.6,14.96,13.71,17.88,9.97,36.2,1586.0,True
-Safest Route (RECOMMENDED),Minimizes slope gradient & boulder hazard; gradual rim ramp,4366.2,15.16,13.6,17.88,9.88,35.9,1601.5,True
-Best-Illuminated Route,Follows sunlit rim ridge as long as possible before cold trap entry,4371.0,15.18,13.22,17.88,9.89,36.1,1601.9,True
+Strategy,Algorithm,Distance (m),Time (h),Shadow Time (h),Max Slope (deg),Min SoC [%],Reserve Margin [%],Feasibility
+Shortest Path (Distance-Optimal),A* (8-connected),7386.6,25.65,0.69,10.3,64.2,44.2,FEASIBLE
+Safest Path (Slope-Averse),A* (8-connected),9077.0,31.52,1.28,5.54,72.9,52.9,FEASIBLE
+Best-Illuminated Path (Solar-Tracking),A* (8-connected),8542.1,29.66,0.42,8.43,81.7,61.7,FEASIBLE

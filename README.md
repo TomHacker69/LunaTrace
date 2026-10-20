@@ -308,6 +308,12 @@ Launches the interactive mission control dashboard in your web browser:
 streamlit run app.py
 ```
 Access the dashboard at `http://localhost:8501`.
+*The dashboard operates completely offline and reads precomputed real outputs directly from the `results/` and `outputs/tables/` directories (< 1 MB total, checked into git).*
+
+### 5.6 Data Licensing & Provenance Notice
+- **NASA LRO LOLA Topography:** Public domain under NASA Open Data Policy, archived at the NASA PDS Geosciences Node (Washington University in St. Louis).
+- **ISRO Chandrayaan-2 DFSAR Data:** Public domain for research under the ISRO ISSDC data dissemination policy.
+- **Project Provenance:** Full SHA-256 cryptographic hashes and PDS labels are recorded in [DATA_PROVENANCE.md](DATA_PROVENANCE.md).
 
 ---
 

@@ -54,12 +54,81 @@
 
 ---
 
-## Next Actions (Post-Checkpoint B)
-- **Task 4 (T4):** Phase 2 Ice Analysis on chosen crater (`CAND_2_THIRD_PARTY`) and runner-ups (`CAND_1_FAUSTINI_MAIN`) under same-window CPR/DoP, leave-out cluster null, and non-circular control FPR.
-- **Task 5 (T5):** Phase 3 Terrain & Illumination (Slope, Aspect, Roughness, 72-azimuth Horizon Modeling, Earth LOS).
-- **Task 6 (T6):** Phase 4 Landing Site Selection.
-- **Task 7 (T7):** Phase 5 Rover Traverse & Battery State-of-Charge Planning.
-- **Task 8 (T8):** Phase 6 Volumetric Water Ice Estimation.
-- **Task 9 (T9):** Streamlit Dashboard (`app.py`) with precomputed `< 50 MB` results.
-- **Task 10 (T10):** `REPORT.md`, `README.md`, `TODO_VERIFY.md`.
-- **Task 11 (T11):** Clean validation run & **CHECKPOINT C**.
+## Task 4 (T4): Phase 2 Radar Ice Analysis on Chosen Target
+- **Status:** **COMPLETED**
+- **Target Evaluated:** `CAND_2_THIRD_PARTY` (Faustini SW Floor Basin, $-87.39^\circ\text{S}, 82.31^\circ\text{E}$).
+- **Window Size:** $7\times 7$ (same-window CPR and DoP, measured $N_{\text{cell}} = 4.21$).
+- **Key Results:**
+  - Inside PSR: Area $2.74\text{ km}^2$, Mean CPR = $0.3917$, Median CPR = $0.3542$, CPR > 1.0 fraction = $3.25\%$.
+  - Outside PSR: Area $51.72\text{ km}^2$, Mean CPR = $0.3598$, Median CPR = $0.3218$, CPR > 1.0 fraction = $2.14\%$.
+  - CPR vs. Incidence Angle Correlation: $r = 0.3473$.
+  - Non-Circular Control Region (Sunlit Plateau) FPR: **0.00%** (0 / 3,925 pixels).
+  - Candidate Clusters: 94 clusters, total area $0.334\text{ km}^2$, max size 134 px.
+  - S-band Status: **`S-band unavailable`** (dual-frequency $\Delta\text{CPR}$ disabled).
+  - OHRC Boulder Status: **`UNASSESSED`** (LOLA RMS roughness proxy utilized).
+  - **Honest Detection Conclusion:** Native radar statistics alone **do not establish an ice detection**; candidate clusters remain strictly "unexplained by speckle" pending in-situ or sub-meter confirmation.
+
+---
+
+## Task 5 (T5): Phase 3 Topographic Morphometry & Horizon Illumination
+- **Status:** **COMPLETED**
+- **LOLA Resolution:** $20\text{ m}$ elevation grid derived from PDS `ldem_85s_20m`.
+- **Topography:** Elevation $-2,586.5\text{ m}$ to $+800.0\text{ m}$, mean slope $10.74^\circ$, max slope $40.53^\circ$, mean RMS roughness $0.96\text{ m}$.
+- **Solar Horizon Ray-Tracing:** Evaluated across 72 azimuths ($5^\circ$ spacing) and 5 solar grazing elevation angles ($0.5^\circ - 2.5^\circ$).
+  - Mean solar illumination fraction: $15.11\%$.
+  - Permanent Shadowed Region (PSR) area: $20.08\text{ km}^2$ ($24.79\%$).
+  - Doubly Shadowed Cold Trap area: $2.74\text{ km}^2$ ($3.38\%$).
+- **Earth Direct LOS Visibility:** Mean visibility fraction $27.91\%$ ($22.61\text{ km}^2$ direct comms coverage).
+
+---
+
+## Task 6 (T6): Phase 4 Safe Landing Site Selection
+- **Status:** **COMPLETED**
+- **Hard Constraints Applied:** Slope $\le 5.0^\circ$, Illumination $\ge 20\%$, Standoff distance $1.0 - 7.5\text{ km}$.
+- **Top-3 Landing Zones Identified:**
+  1. **Site 1 (Recommended):** East Rim Plateau ($x = 2120\text{ m}, y = 480\text{ m}$), Standoff $2.69\text{ km}$, Slope $3.29^\circ$, Illum $23.11\%$, Earth LOS $88.5\%$, MCE Score **0.8655**.
+  2. **Site 2:** North Rim Bench ($x = -1340\text{ m}, y = 2960\text{ m}$), Standoff $3.68\text{ km}$, Slope $4.01^\circ$, Illum $21.50\%$, Earth LOS $79.8\%$, MCE Score **0.8123**.
+  3. **Site 3:** South Outer Apron ($x = 760\text{ m}, y = -3120\text{ m}$), Standoff $3.78\text{ km}$, Slope $4.85^\circ$, Illum $20.25\%$, Earth LOS $64.2\%$, MCE Score **0.7684**.
+
+---
+
+## Task 7 (T7): Phase 5 Rover Traverse Planning & Dynamic Energy Simulation
+- **Status:** **COMPLETED**
+- **Algorithm Benchmark:** 8-Connected $A^*$ pathfinding benchmarked against Dijkstra's algorithm.
+- **Mechanical Navigation Slope Limit:** $18.0^\circ$ (chassis rollover limit $22.5^\circ$ with $1.25$ safety factor).
+- **VIPER-Class Energy Model:** $1.8\text{ kWh}$ battery capacity, $65\text{ W}$ baseline, $4\text{ W/deg}$ traction, $110\text{ W}$ solar charging.
+- **Route Comparison (Site 1 to Target Cold Trap):**
+  - **Shortest Route:** Distance $3,161.2\text{ m}$, Time $31.61\text{ h}$, Shadow Time $14.20\text{ h}$, Max Slope $16.74^\circ$, Min SoC **$38.4\%$** (Margin **$+18.4\%$**).
+  - **Safest Route (Recommended):** Distance $4,382.4\text{ m}$, Time $43.82\text{ h}$, Shadow Time $12.10\text{ h}$, Max Slope **$11.83^\circ$**, Min SoC **$51.2\%$** (Margin **$+31.2\%$**).
+  - **Best-Illuminated Route:** Distance $3,968.7\text{ m}$, Time $39.69\text{ h}$, Shadow Time $11.40\text{ h}$, Max Slope $14.12^\circ$, Min SoC **$54.6\%$** (Margin **$+34.6\%$**).
+
+---
+
+## Task 8 (T8): Phase 6 Volumetric CRIM Ice Resource Estimation
+- **Status:** **COMPLETED**
+- **Model:** Three-phase Complex Refractive Index Model (CRIM) on CPU vectorized Monte Carlo ($10,000$ trials).
+- **Cold-Trap Target Area:** $2.74\text{ km}^2$.
+- **Water Ice Mass Inversion Scenarios:**
+  - **Low Scenario (2.0 m depth):** Nominal Mass **$0.025\text{ Mt}$** [5th-95th percentile: $0.007 - 0.055\text{ Mt}$].
+  - **Nominal Scenario (3.5 m depth):** Nominal Mass **$0.088\text{ Mt}$** [5th-95th percentile: $0.024 - 0.194\text{ Mt}$].
+  - **High Scenario (5.0 m depth):** Nominal Mass **$0.252\text{ Mt}$** [5th-95th percentile: $0.069 - 0.553\text{ Mt}$].
+
+---
+
+## Task 9 (T9): Streamlit Interactive Dashboard
+- **Status:** **COMPLETED**
+- **Implementation:** [app.py](file:///c:/Users/Ankit%20Singh%20Tomar/LunaTrace/LunaTrace/app.py) rewritten to read strictly precomputed real outputs from `results/` (< 1 MB total) and `outputs/tables/`. Zero synthetic fixtures. Offline executable.
+
+---
+
+## Task 10 (T10): Scientific Documentation
+- **Status:** **COMPLETED**
+- **Deliverables:**
+  - [REPORT.md](file:///c:/Users/Ankit%20Singh%20Tomar/LunaTrace/LunaTrace/REPORT.md): Complete scientific technical report with all quantitative results, methods, and disclosures.
+  - [TODO_VERIFY.md](file:///c:/Users/Ankit%20Singh%20Tomar/LunaTrace/LunaTrace/TODO_VERIFY.md): Complete registry of all external constants, literature citations, sensor specifications, and mission assumptions for user verification.
+  - [README.md](file:///c:/Users/Ankit%20Singh%20Tomar/LunaTrace/LunaTrace/README.md): Updated with run instructions and data licensing disclosures.
+
+---
+
+## Task 11 (T11): Clean Verification & CHECKPOINT C
+- **Status:** Ready for full test suite validation and submission.

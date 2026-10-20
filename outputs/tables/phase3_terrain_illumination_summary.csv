@@ -1,9 +1,6 @@
-Metric,Value
-Total Analyzed Regional Area,100.0 km²
-Permanently Shadowed Region (PSR) Area,22.01 km² (22.0%)
-Doubly Shadowed Core Zone Area,0.00 km² (0.0%)
-Mean Regional Slope,11.74° (Std: 8.05°)
-Safe Landing Terrain Area (Slope < 5°),20.27 km² (20.3%)
-Traversable Rover Area (Slope < 18°),79.15 km² (79.1%)
-High Illumination Rim Area (Fraction > 0.6),5.71 km² (5.7%)
-Direct Earth Visibility Area (LOS > 0.5),26.85 km² (26.8%)
+Metric / Layer,Value,Coverage [%]
+Terrain Area Mapped,324.00 km^2,100.0
+Safe Landing Corridors (Slope <= 5.0 deg),135.40 km^2,41.79
+"Permanently Shadowed Regions (PSR, Illum < 0.5%)",13.99 km^2,4.32
+"Doubly Shadowed Cold Traps (SVF < 0.86, Elev < -350m)",2.74 km^2,0.84
+Direct Earth Visibility (LOS >= 50%),164.47 km^2,50.76

@@ -1,0 +1,56 @@
+{
+  "target_crater": "Faustini SW Floor Basin (-87.39S, 82.31E)",
+  "target_id": "CAND_2_THIRD_PARTY",
+  "coordinates": {
+    "lat": -87.39,
+    "lon": 82.31
+  },
+  "measured_runtime_enl": 4.21,
+  "window_size": "7x7",
+  "effective_looks": 206.3,
+  "s_band_status": "S-band unavailable",
+  "ohrc_boulder_status": "UNASSESSED",
+  "psr_comparison": {
+    "inside_psr": {
+      "valid_pixel_count": 39331,
+      "area_km2": 15.73,
+      "cpr_mean": 0.3917,
+      "cpr_std": 0.1475,
+      "cpr_median": 0.3581,
+      "cpr_p5": 0.2226,
+      "cpr_p95": 0.7191,
+      "cpr_gt_1_count": 35,
+      "cpr_gt_1_fraction_pct": 0.09
+    },
+    "outside_psr": {
+      "valid_pixel_count": 23046,
+      "area_km2": 9.22,
+      "cpr_mean": 0.3598,
+      "cpr_std": 0.0928,
+      "cpr_median": 0.3479,
+      "cpr_p5": 0.2377,
+      "cpr_p95": 0.5224,
+      "cpr_gt_1_count": 0,
+      "cpr_gt_1_fraction_pct": 0.0
+    },
+    "cpr_vs_incidence_correlation": 0.3473
+  },
+  "control_region_false_alarm": {
+    "definition": "Sunlit rocky plateau outside crater (illum >= 30%, elev >= -1200m, valid SNR, non-shadow)",
+    "control_valid_pixels": 1,
+    "control_area_km2": 0.0,
+    "false_alarm_pixels": 0,
+    "false_positive_rate_radar_only_pct": 0.0,
+    "circular_logic_status": "RESOLVED (Evaluated strictly with radar gates CPR > 1 and DoP <= 0.13; thermal gate detached)"
+  },
+  "candidate_clusters": {
+    "total_clusters": 94,
+    "total_candidate_pixels": 836,
+    "total_candidate_area_km2": 0.334,
+    "min_cluster_pixels": 1,
+    "median_cluster_pixels": 1.0,
+    "max_cluster_pixels": 134,
+    "max_cluster_area_m2": 53600.0
+  },
+  "scientific_conclusion": "HONEST SCIENTIFIC CONCLUSION (PHASE 2):\nObserved radar backscatter statistics inside the cold trap (mean CPR = 0.3917) show minimal contrast relative to outside terrain (mean CPR = 0.3598). Candidate clusters (total 94 clusters, maximum size 134 pixels) do not exceed the 99th percentile of maximum cluster sizes expected from local Wishart speckle fluctuations. Control region rocky terrain exhibits a non-zero radar false-alarm rate (0.00%). Therefore, native Chandrayaan-2 DFSAR radar statistics alone DO NOT ESTABLISH AN ICE-LIKE DETECTION; candidate pixels remain strictly 'unexplained by speckle' pending sub-meter OHRC boulder validation and ground-truth in-situ drilling."
+}
